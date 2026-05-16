@@ -9,6 +9,7 @@ final class ThumbnailWindowController: NSObject {
     private static let displayDuration: TimeInterval = 8.0
     private static let maxHeight: CGFloat = 220
     private static let maxWidth: CGFloat = 340
+    private static let minWidth: CGFloat = 230   // enough to fit Copy | Save | Open pill
     private static let edgeInset: CGFloat = 24
 
     init(image: NSImage, fileURL: URL, onDismissed: @escaping (ThumbnailWindowController) -> Void) {
@@ -124,9 +125,13 @@ final class ThumbnailWindowController: NSObject {
         NSWorkspace.shared.open(view.fileURL)
     }
 
+    /// Size of the panel itself. For tall portrait screenshots we widen the panel
+    /// (with empty side margins around the image) so the bottom action pill
+    /// can render at its natural width without being clipped by the rounded
+    /// view bounds. The image inside uses .resizeAspect, so it stays centered.
     private static func scaledSize(for imageSize: NSSize) -> NSSize {
         guard imageSize.width > 0, imageSize.height > 0 else {
-            return NSSize(width: 200, height: 200)
+            return NSSize(width: minWidth, height: 200)
         }
         let aspect = imageSize.width / imageSize.height
         var height = maxHeight
@@ -134,6 +139,10 @@ final class ThumbnailWindowController: NSObject {
         if width > maxWidth {
             width = maxWidth
             height = width / aspect
+        }
+        // Enforce a minimum width to keep the action pill un-clipped.
+        if width < minWidth {
+            width = minWidth
         }
         return NSSize(width: ceil(width), height: ceil(height))
     }
