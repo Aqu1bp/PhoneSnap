@@ -4,6 +4,7 @@ import AppKit
 final class ThumbnailView: NSView, NSDraggingSource {
     let fileURL: URL
     private let image: NSImage
+    private let barHeight: CGFloat
     private let imageLayer = CALayer()
     private let confirmationLabel = NSTextField(labelWithString: "")
     private let buttonStack = NSStackView()
@@ -19,82 +20,85 @@ final class ThumbnailView: NSView, NSDraggingSource {
     var onHoverChange: ((Bool) -> Void)?
     var onEscape: (() -> Void)?
 
-    init(frame: NSRect, image: NSImage, fileURL: URL) {
+    init(frame: NSRect, image: NSImage, fileURL: URL, barHeight: CGFloat) {
         self.image = image
         self.fileURL = fileURL
+        self.barHeight = barHeight
         super.init(frame: frame)
         wantsLayer = true
         layer?.cornerRadius = 14
         layer?.borderWidth = 1
-        layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.4).cgColor
+        layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.45).cgColor
         layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         layer?.masksToBounds = true
 
-        // shadow can't be inside masksToBounds layer; we let the panel's hasShadow handle it.
-
+        // Image fills the top portion of the panel, above the action bar.
         imageLayer.contentsGravity = .resizeAspect
         imageLayer.contents = image
-        imageLayer.frame = bounds.insetBy(dx: 8, dy: 8)
-        imageLayer.cornerRadius = 8
+        imageLayer.frame = imageRect()
+        imageLayer.cornerRadius = 6
         imageLayer.masksToBounds = true
         layer?.addSublayer(imageLayer)
 
-        // Close button (top-right) — solid dark circle with white X, always visible.
+        // Always-visible bottom action bar (full panel width, sits below the image).
+        let bar = NSView()
+        bar.wantsLayer = true
+        bar.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.92).cgColor
+        bar.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(bar)
+        buttonBar = bar
+
+        // Subtle top separator between image and bar.
+        let separator = NSView()
+        separator.wantsLayer = true
+        separator.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.10).cgColor
+        separator.translatesAutoresizingMaskIntoConstraints = false
+        bar.addSubview(separator)
+
+        buttonStack.orientation = .horizontal
+        buttonStack.spacing = 0
+        buttonStack.alignment = .centerY
+        buttonStack.distribution = .fillEqually
+        buttonStack.translatesAutoresizingMaskIntoConstraints = false
+        let copy = makeActionButton(title: "Copy", action: #selector(copyPressed))
+        let save = makeActionButton(title: "Save", action: #selector(savePressed))
+        let open = makeActionButton(title: "Open", action: #selector(openPressed))
+        buttonStack.addArrangedSubview(copy)
+        buttonStack.addArrangedSubview(save)
+        buttonStack.addArrangedSubview(open)
+        bar.addSubview(buttonStack)
+
+        NSLayoutConstraint.activate([
+            bar.leadingAnchor.constraint(equalTo: leadingAnchor),
+            bar.trailingAnchor.constraint(equalTo: trailingAnchor),
+            bar.bottomAnchor.constraint(equalTo: bottomAnchor),
+            bar.heightAnchor.constraint(equalToConstant: barHeight),
+            separator.leadingAnchor.constraint(equalTo: bar.leadingAnchor),
+            separator.trailingAnchor.constraint(equalTo: bar.trailingAnchor),
+            separator.topAnchor.constraint(equalTo: bar.topAnchor),
+            separator.heightAnchor.constraint(equalToConstant: 1),
+            buttonStack.leadingAnchor.constraint(equalTo: bar.leadingAnchor),
+            buttonStack.trailingAnchor.constraint(equalTo: bar.trailingAnchor),
+            buttonStack.topAnchor.constraint(equalTo: separator.bottomAnchor),
+            buttonStack.bottomAnchor.constraint(equalTo: bar.bottomAnchor)
+        ])
+
+        // Close button (top-right of the image area).
         closeButton.bezelStyle = .circular
         closeButton.isBordered = false
-        let xConfig = NSImage.SymbolConfiguration(pointSize: 14, weight: .bold)
+        let xConfig = NSImage.SymbolConfiguration(pointSize: 12, weight: .bold)
         let xImage = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close")?
             .withSymbolConfiguration(xConfig)
         closeButton.image = xImage
         closeButton.contentTintColor = NSColor.white
         closeButton.wantsLayer = true
         closeButton.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.75).cgColor
-        closeButton.layer?.cornerRadius = 11
-        closeButton.layer?.borderWidth = 1
-        closeButton.layer?.borderColor = NSColor.white.withAlphaComponent(0.25).cgColor
+        closeButton.layer?.cornerRadius = 10
         closeButton.target = self
         closeButton.action = #selector(closePressed)
-        closeButton.isHidden = false
-        closeButton.frame = NSRect(x: bounds.width - 26, y: bounds.height - 26, width: 22, height: 22)
+        closeButton.frame = NSRect(x: bounds.width - 24, y: bounds.height - 24, width: 20, height: 20)
         closeButton.autoresizingMask = [.minXMargin, .minYMargin]
         addSubview(closeButton)
-
-        // Always-visible action pill at the bottom.
-        let pill = NSView()
-        pill.wantsLayer = true
-        pill.layer?.cornerRadius = 15
-        pill.layer?.masksToBounds = true
-        pill.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.78).cgColor
-        pill.layer?.borderWidth = 1
-        pill.layer?.borderColor = NSColor.white.withAlphaComponent(0.18).cgColor
-        pill.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(pill)
-        buttonBar = pill
-
-        buttonStack.orientation = .horizontal
-        buttonStack.spacing = 0
-        buttonStack.alignment = .centerY
-        buttonStack.distribution = .fill
-        buttonStack.translatesAutoresizingMaskIntoConstraints = false
-        let copy = makeActionButton(title: "Copy", action: #selector(copyPressed))
-        let save = makeActionButton(title: "Save", action: #selector(savePressed))
-        let open = makeActionButton(title: "Open", action: #selector(openPressed))
-        buttonStack.addArrangedSubview(copy)
-        buttonStack.addArrangedSubview(makeSeparator())
-        buttonStack.addArrangedSubview(save)
-        buttonStack.addArrangedSubview(makeSeparator())
-        buttonStack.addArrangedSubview(open)
-        pill.addSubview(buttonStack)
-
-        NSLayoutConstraint.activate([
-            pill.centerXAnchor.constraint(equalTo: centerXAnchor),
-            pill.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
-            pill.heightAnchor.constraint(equalToConstant: 30),
-            buttonStack.leadingAnchor.constraint(equalTo: pill.leadingAnchor),
-            buttonStack.trailingAnchor.constraint(equalTo: pill.trailingAnchor),
-            buttonStack.topAnchor.constraint(equalTo: pill.topAnchor),
-            buttonStack.bottomAnchor.constraint(equalTo: pill.bottomAnchor)
-        ])
 
         confirmationLabel.font = .systemFont(ofSize: 11, weight: .semibold)
         confirmationLabel.textColor = .white
@@ -148,11 +152,23 @@ final class ThumbnailView: NSView, NSDraggingSource {
 
     override func layout() {
         super.layout()
-        imageLayer.frame = bounds.insetBy(dx: 8, dy: 8)
+        imageLayer.frame = imageRect()
+    }
+
+    private func imageRect() -> NSRect {
+        let inset: CGFloat = 4
+        return NSRect(
+            x: inset,
+            y: barHeight + inset,
+            width: max(0, bounds.width - inset * 2),
+            height: max(0, bounds.height - barHeight - inset * 2)
+        )
     }
 
     // MARK: drag-out
     override func mouseDragged(with event: NSEvent) {
+        let pt = convert(event.locationInWindow, from: nil)
+        guard imageRect().contains(pt) else { return }
         let pbItem = NSPasteboardItem()
         pbItem.setDataProvider(self, forTypes: [.fileURL])
         // Encode the file URL inline so even simple drop targets work.
@@ -176,11 +192,12 @@ final class ThumbnailView: NSView, NSDraggingSource {
     }
 
     override func mouseUp(with event: NSEvent) {
-        // Click on the image (not on a button) opens the file in Preview.
+        // Click directly on the image (not in the bottom bar or close button)
+        // opens the file in Preview. The bar/buttons handle their own events
+        // because they're real subviews and will intercept the mouseDown.
         if event.clickCount == 1 {
             let pt = convert(event.locationInWindow, from: nil)
-            if !(buttonBar?.frame.contains(pt) ?? false) &&
-               !closeButton.frame.contains(pt) {
+            if imageRect().contains(pt) {
                 onOpen?()
             }
         }
