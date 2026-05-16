@@ -3,3 +3,9 @@
 DerivedData/
 *.xcuserstate
 ScreenshotCatch.app/
+
+# captured screenshots that landed in repo while save folder default was Desktop/ScreenshotCatch
+Screenshot*.png
+
+# generated probe sample
+scripts/sample.png
