@@ -2,48 +2,63 @@
 
 Mirror the iOS Simulator screenshot thumbnail experience for screenshots you take on a **real iPhone**.
 
-Take a screenshot on iPhone → double-tap the back of the phone → a floating thumbnail pops in the bottom-right corner of your Mac. Drag it directly into Claude Code / Cursor / Slack / Notes, or hit **Copy** and ⌘V anywhere.
+Take a screenshot on iPhone → a floating thumbnail pops in the bottom-right corner of your Mac. Drag it directly into Claude Code / Cursor / Slack / Notes, or hit **Copy** and ⌘V anywhere.
 
-- 100% Apple-supported APIs, no third-party services, no paid developer account needed
-- Local LAN HTTP (sub-second end-to-end), no cloud sync
-- Mac side is a 280 KB SwiftPM binary, runs as a menu bar app
+Two delivery paths, both built in, run in parallel, dedupe automatically:
+
+| Path | When | Setup | Latency |
+|------|------|-------|---------|
+| **Cable** | iPhone plugged into Mac | Zero. Just plug in. | ~1s |
+| **Wireless** | iPhone unplugged, same Wi-Fi | Scan a QR code once | ~1s after a single trigger gesture |
+
+- 100% Apple-supported APIs, no third-party services, no paid developer account, no iCloud requirement
+- Mac side is a ~300 KB SwiftPM binary; runs as a menu bar app
 
 ## Why this exists
 
-When you take a screenshot in the iOS Simulator on Mac, a thumbnail appears bottom-right that you can drag into any app. There is no equivalent for real iPhones. ScreenshotCatch builds that bridge so you can hand screenshots to AI coding agents without losing the context-switch.
+When you take a screenshot in the iOS Simulator on Mac, a thumbnail appears bottom-right that you can drag into any app. There is no equivalent for real iPhones. ScreenshotCatch builds that bridge so you can hand screenshots to AI coding agents without losing the context switch.
 
 ## Requirements
 
 - macOS 13+ (built on 26 Tahoe)
 - Swift 5.9+ / Xcode 15+ (only needed to build; no Apple Developer Program account required)
-- An iPhone on iOS 14+ on the **same Wi-Fi network** as the Mac
+- An iPhone on iOS 14+
 
 ## Quick start
 
 ```bash
-# 1. Build the .app once
-cd /path/to/PhoneSnap
+git clone <this repo>
+cd ScreenshotCatch
 ./scripts/build-app.sh
-
-# 2. Launch it (or double-click ScreenshotCatch.app in Finder)
 open ./ScreenshotCatch.app
 ```
 
-A small camera icon appears in the menu bar. Click it to see the server URL — something like `http://192.168.1.x:8472/screenshot`. Note this down.
+A small camera icon appears in the menu bar. The app is running.
+
+### Cable path (zero iPhone setup)
+
+Plug your iPhone into the Mac with a Lightning / USB-C cable. The first time, tap **"Trust this computer"** on the iPhone. That's it — take a screenshot, and a thumbnail appears bottom-right on the Mac within ~1 second. No Shortcut, no Back Tap, no settings to configure on iPhone.
+
+This works because macOS treats a plugged-in iPhone as a camera-class device, and `ImageCaptureCore` delivers a real-time notification for every new asset added to the camera roll. ScreenshotCatch filters those down to screenshots (by aspect ratio + dimensions) and shows the thumbnail.
+
+### Wireless path (scan a QR once)
+
+For when the iPhone isn't plugged in:
+
+1. Click the menu bar icon → **"Pair iPhone…"** (or hit ⌘P with the menu open).
+2. A window opens with a QR code.
+3. Open Camera on iPhone, point at the QR, tap the Safari notification.
+4. Tap **Add Shortcut**. (No "Allow Untrusted Shortcuts" prompt — the Shortcut is properly signed via `shortcuts sign --mode anyone`, the same trust scope Apple uses for iCloud-shared Shortcuts.)
+5. The imported Shortcut already has your Mac's URL baked in. Test it: tap it once in Shortcuts.app. A screenshot should arrive on your Mac.
+6. **Bind it to a trigger** so you don't have to open Shortcuts each time — pick whichever fits your hardware: AssistiveTouch single-tap (any iPhone, most reliable), Action Button (15 Pro/16, hardware-reliable), Back Tap (any iPhone but accelerometer-flaky), or Share Sheet. See [`docs/IPHONE_SETUP.md`](docs/IPHONE_SETUP.md) for one-line settings paths.
+
+Total wireless setup time: ~30 seconds. Zero typing.
+
+### Local probe (no iPhone needed)
 
 ```bash
-# 3. (Optional) Verify the Mac side works with no iPhone yet
-./scripts/probe.sh    # POSTs sample PNGs via curl; you should see thumbnails pop bottom-right
+./scripts/probe.sh    # POSTs sample PNGs via curl; thumbnails pop bottom-right
 ```
-
-Then follow **[docs/IPHONE_SETUP.md](docs/IPHONE_SETUP.md)** (≈ 2 minutes, one-time):
-
-1. Build a 2-action Shortcut on your iPhone: `Get Latest Screenshots` → `Get Contents of URL` (POST, Form, file=screenshot).
-2. Paste the Mac's URL into the shortcut.
-3. Bind it to **Back Tap (double-tap)** in Settings → Accessibility → Touch → Back Tap.
-4. First run will prompt for Photos + Local Network — Allow.
-
-Then: take a screenshot, double-tap the back of your phone, watch the thumbnail land on the Mac.
 
 ## Thumbnail behavior (matches the iOS Simulator)
 

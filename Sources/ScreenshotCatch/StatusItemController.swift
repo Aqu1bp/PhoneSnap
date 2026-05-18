@@ -5,11 +5,16 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let port: UInt16
     private let onShowLast: () -> Void
     private let onRevealFolder: () -> Void
+    private let onPair: () -> Void
 
-    init(port: UInt16, onShowLast: @escaping () -> Void, onRevealFolder: @escaping () -> Void) {
+    init(port: UInt16,
+         onShowLast: @escaping () -> Void,
+         onRevealFolder: @escaping () -> Void,
+         onPair: @escaping () -> Void) {
         self.port = port
         self.onShowLast = onShowLast
         self.onRevealFolder = onRevealFolder
+        self.onPair = onPair
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
         if let button = statusItem.button {
@@ -46,6 +51,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menu.addItem(ipItem)
         menu.addItem(.separator())
 
+        let pair = NSMenuItem(title: "Pair iPhone…", action: #selector(pairAction), keyEquivalent: "p")
+        pair.target = self
+        menu.addItem(pair)
+        menu.addItem(.separator())
+
         let show = NSMenuItem(title: "Show Last Screenshot", action: #selector(showLastAction), keyEquivalent: "")
         show.target = self
         menu.addItem(show)
@@ -74,6 +84,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     @objc private func showLastAction() { onShowLast() }
     @objc private func revealAction() { onRevealFolder() }
+    @objc private func pairAction() { onPair() }
     @objc private func copyURLAction(_ sender: NSMenuItem) {
         if let str = sender.representedObject as? String {
             NSPasteboard.general.clearContents()

@@ -5,6 +5,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var presenter: ThumbnailPresenter!
     private var server: HTTPListener!
     private var cameraBridge: CameraBridge!
+    private var pairingWindow: PairingWindow!
     private let store = ImageStore()
 
     /// Recent screenshot signatures, keyed by `(byteCount, prefix-hash)`, used
@@ -18,17 +19,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let port = UInt16(ProcessInfo.processInfo.environment["SCREENSHOTCATCH_PORT"].flatMap(UInt16.init) ?? 8472)
 
         presenter = ThumbnailPresenter()
-        statusItemController = StatusItemController(port: port, onShowLast: { [weak self] in
-            self?.presenter.showLast()
-        }, onRevealFolder: { [weak self] in
-            self?.store.revealInFinder()
-        })
+        pairingWindow = PairingWindow(port: port)
+        statusItemController = StatusItemController(
+            port: port,
+            onShowLast: { [weak self] in self?.presenter.showLast() },
+            onRevealFolder: { [weak self] in self?.store.revealInFinder() },
+            onPair: { [weak self] in self?.pairingWindow.show() }
+        )
 
         // Source 1: LAN HTTP server (the Shortcut-driven wireless path).
-        server = HTTPListener(port: port) { [weak self] data in
-            guard let self else { return false }
-            return self.deliver(data: data, source: "HTTP")
-        }
+        // urlProvider gives the Shortcut generator the canonical Mac URL when
+        // it needs to bake one into a `/install.shortcut` response.
+        server = HTTPListener(
+            port: port,
+            urlProvider: {
+                let hostname = Host.current().localizedName ?? "mac"
+                return "http://\(hostname).local:\(port)/screenshot"
+            },
+            handler: { [weak self] data in
+                guard let self else { return false }
+                return self.deliver(data: data, source: "HTTP")
+            }
+        )
 
         // Source 2: ImageCaptureCore (the cable path — zero tap when iPhone is docked).
         cameraBridge = CameraBridge { [weak self] data, name in

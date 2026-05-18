@@ -3,18 +3,28 @@ import Network
 
 final class HTTPListener {
     typealias Handler = (Data) -> Bool
+    typealias URLProvider = () -> String
 
     private let port: UInt16
     private let handler: Handler
+    private let urlProvider: URLProvider
     private var listener: NWListener?
     private let queue = DispatchQueue(label: "screenshotcatch.net")
     private let maxBody = 32 * 1024 * 1024 // 32 MB cap
     private var sessions: [ObjectIdentifier: HTTPSession] = [:]
     private let sessionsLock = NSLock()
 
-    init(port: UInt16, handler: @escaping Handler) {
+    init(port: UInt16, urlProvider: @escaping URLProvider, handler: @escaping Handler) {
         self.port = port
+        self.urlProvider = urlProvider
         self.handler = handler
+    }
+
+    /// Generate a signed `.shortcut` file for the current Mac URL. Called by
+    /// HTTPSession on `GET /install.shortcut`.
+    func makeInstallShortcut() throws -> Data {
+        let macURL = urlProvider()
+        return try ShortcutGenerator.makeSigned(macURL: macURL)
     }
 
     fileprivate func retain(_ session: HTTPSession) {
@@ -47,9 +57,17 @@ final class HTTPListener {
     }
 
     private func accept(_ conn: NWConnection) {
-        let session = HTTPSession(connection: conn, queue: queue, maxBody: maxBody) { [weak self] data in
-            self?.handler(data) ?? false
-        }
+        let session = HTTPSession(
+            connection: conn,
+            queue: queue,
+            maxBody: maxBody,
+            handle: { [weak self] data in
+                self?.handler(data) ?? false
+            },
+            makeInstallShortcut: { [weak self] in
+                try self?.makeInstallShortcut()
+            }
+        )
         retain(session)
         session.onFinished = { [weak self, weak session] in
             if let session { self?.release(session) }
@@ -63,6 +81,7 @@ fileprivate final class HTTPSession {
     private let queue: DispatchQueue
     private let maxBody: Int
     private let handle: (Data) -> Bool
+    private let makeInstallShortcut: () throws -> Data?
     var onFinished: (() -> Void)?
     private var buffer = Data()
     private var headersParsed = false
@@ -73,11 +92,16 @@ fileprivate final class HTTPSession {
     private var body = Data()
     private var didFinish = false
 
-    init(connection: NWConnection, queue: DispatchQueue, maxBody: Int, handle: @escaping (Data) -> Bool) {
+    init(connection: NWConnection,
+         queue: DispatchQueue,
+         maxBody: Int,
+         handle: @escaping (Data) -> Bool,
+         makeInstallShortcut: @escaping () throws -> Data?) {
         self.conn = connection
         self.queue = queue
         self.maxBody = maxBody
         self.handle = handle
+        self.makeInstallShortcut = makeInstallShortcut
     }
 
     func start() {
@@ -181,6 +205,13 @@ fileprivate final class HTTPSession {
     }
 
     private func handleRequest() {
+        // Public pairing endpoint: GET /install.shortcut returns a freshly-
+        // generated, signed Shortcut file pre-configured with this Mac's URL.
+        // iPhone Shortcuts.app fetches this via `shortcuts://import-shortcut`.
+        if path == "/install.shortcut" || path.hasPrefix("/install.shortcut?") {
+            handleInstall()
+            return
+        }
         guard path == "/screenshot" else {
             respond(status: "404 Not Found", body: "use POST /screenshot")
             return
@@ -214,17 +245,49 @@ fileprivate final class HTTPSession {
     }
 
     private func respond(status: String, body: String, contentType: String = "text/plain; charset=utf-8") {
-        let bodyData = Data(body.utf8)
+        respondData(status: status, body: Data(body.utf8), contentType: contentType)
+    }
+
+    private func respondData(status: String,
+                             body: Data,
+                             contentType: String,
+                             extraHeaders: [String: String] = [:]) {
         var header = "HTTP/1.1 \(status)\r\n"
         header += "Content-Type: \(contentType)\r\n"
-        header += "Content-Length: \(bodyData.count)\r\n"
+        header += "Content-Length: \(body.count)\r\n"
+        for (k, v) in extraHeaders {
+            header += "\(k): \(v)\r\n"
+        }
         header += "Connection: close\r\n\r\n"
         var packet = Data(header.utf8)
-        packet.append(bodyData)
+        packet.append(body)
         conn.send(content: packet, isComplete: true, completion: .contentProcessed { [weak self] error in
             if let error { Log.error("send error: \(error)") }
             self?.finishAndCancel()
         })
+    }
+
+    fileprivate func handleInstall() {
+        guard method == "GET" || method == "HEAD" else {
+            respond(status: "405 Method Not Allowed", body: "GET only")
+            return
+        }
+        do {
+            guard let signedBytes = try makeInstallShortcut() else {
+                respond(status: "500 Internal Server Error", body: "shortcut generation unavailable")
+                return
+            }
+            Log.info("Generated install.shortcut (\(signedBytes.count) bytes)")
+            respondData(
+                status: "200 OK",
+                body: signedBytes,
+                contentType: "application/x-apple-shortcut",
+                extraHeaders: ["Content-Disposition": "attachment; filename=\"ScreenshotCatch.shortcut\""]
+            )
+        } catch {
+            Log.error("install shortcut generation failed: \(error)")
+            respond(status: "500 Internal Server Error", body: "shortcut generation failed: \(error)")
+        }
     }
 
     private func finishAndCancel() {
