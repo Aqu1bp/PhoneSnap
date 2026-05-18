@@ -119,12 +119,18 @@ final class PairingWindow {
         return root
     }
 
-    /// Returns the full pairing URL: shortcuts://import-shortcut?url=…&name=…
+    /// The QR encodes the direct HTTP URL to a small landing page on this Mac.
+    /// When the iPhone Camera scans the QR, Safari opens that page, which has
+    /// a single "Install Shortcut" link to /install.shortcut. iOS Safari then
+    /// recognizes the `application/x-apple-shortcut` content type and prompts
+    /// to open the file in the Shortcuts app.
+    ///
+    /// We deliberately do NOT use `shortcuts://import-shortcut?url=…` — that
+    /// URL scheme requires the source URL to be HTTPS / a real DNS name
+    /// (built for iCloud-hosted Shortcuts) and rejects LAN `.local` URLs
+    /// with "shortcut URL provided was invalid".
     func pairingURL() -> String {
-        let hostname = Host.current().localizedName ?? "mac"
-        let installURL = "http://\(hostname).local:\(port)/install.shortcut"
-        let encodedURL = installURL.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? installURL
-        return "shortcuts://import-shortcut?url=\(encodedURL)&name=Send%20Screenshot%20To%20Mac"
+        return "http://\(LocalHostName.mdnsHostname()):\(port)/pair"
     }
 
     @objc private func copyPressed() {

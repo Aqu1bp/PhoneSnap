@@ -205,9 +205,12 @@ fileprivate final class HTTPSession {
     }
 
     private func handleRequest() {
-        // Public pairing endpoint: GET /install.shortcut returns a freshly-
-        // generated, signed Shortcut file pre-configured with this Mac's URL.
-        // iPhone Shortcuts.app fetches this via `shortcuts://import-shortcut`.
+        // /pair → HTML landing page (the URL iPhone Safari lands on from QR)
+        if path == "/pair" || path.hasPrefix("/pair?") {
+            handlePair()
+            return
+        }
+        // /install.shortcut → signed binary plist iOS imports
         if path == "/install.shortcut" || path.hasPrefix("/install.shortcut?") {
             handleInstall()
             return
@@ -267,6 +270,94 @@ fileprivate final class HTTPSession {
         })
     }
 
+    fileprivate func handlePair() {
+        // Small mobile-friendly landing page with one big install button.
+        // Tapping the link triggers Safari to fetch /install.shortcut; the
+        // response carries Content-Type: application/x-apple-shortcut and
+        // Content-Disposition with a .shortcut filename, so iOS prompts to
+        // open in the Shortcuts app and the user just taps "Add Shortcut".
+        let html = """
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+        <meta name="apple-mobile-web-app-capable" content="yes">
+        <title>ScreenshotCatch — Pair iPhone</title>
+        <style>
+          :root { color-scheme: light dark; }
+          * { box-sizing: border-box; }
+          body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+            background: linear-gradient(160deg, #f5f5f7 0%, #e0e0e6 100%);
+            color: #111;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 32px 24px;
+            text-align: center;
+          }
+          @media (prefers-color-scheme: dark) {
+            body { background: linear-gradient(160deg, #1c1c1e 0%, #000 100%); color: #f5f5f7; }
+            .card { background: rgba(255,255,255,0.06); }
+            small { color: rgba(255,255,255,0.55); }
+          }
+          .card {
+            background: rgba(255,255,255,0.6);
+            backdrop-filter: blur(20px);
+            border-radius: 24px;
+            padding: 32px 28px;
+            max-width: 420px;
+            width: 100%;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+          }
+          h1 { margin: 0 0 6px; font-size: 26px; font-weight: 700; letter-spacing: -0.02em; }
+          p { margin: 0 0 24px; line-height: 1.5; font-size: 15px; opacity: 0.85; }
+          a.btn {
+            display: inline-block;
+            padding: 16px 28px;
+            background: #007aff;
+            color: white !important;
+            text-decoration: none;
+            border-radius: 14px;
+            font-size: 17px;
+            font-weight: 600;
+            box-shadow: 0 4px 16px rgba(0,122,255,0.35);
+          }
+          a.btn:active { background: #005ecb; }
+          ol {
+            text-align: left;
+            line-height: 1.6;
+            font-size: 14px;
+            opacity: 0.8;
+            padding-left: 22px;
+            margin: 24px 0 0;
+          }
+          small { display: block; margin-top: 20px; font-size: 11px; opacity: 0.55; }
+        </style>
+        </head>
+        <body>
+          <div class="card">
+            <h1>📸 Pair with Mac</h1>
+            <p>This installs a Shortcut on your iPhone, already configured for this Mac.</p>
+            <a class="btn" href="/install.shortcut">Install Shortcut</a>
+            <ol>
+              <li>Tap the button above.</li>
+              <li>iOS Shortcuts opens — tap <strong>Add Shortcut</strong>.</li>
+              <li>Run it once to grant Photos + Local Network permissions.</li>
+              <li>Bind it to AssistiveTouch / Back Tap / Action Button.</li>
+            </ol>
+            <small>ScreenshotCatch · local-only · no cloud</small>
+          </div>
+        </body>
+        </html>
+        """
+        respond(status: "200 OK", body: html, contentType: "text/html; charset=utf-8")
+    }
+
     fileprivate func handleInstall() {
         guard method == "GET" || method == "HEAD" else {
             respond(status: "405 Method Not Allowed", body: "GET only")
@@ -278,11 +369,15 @@ fileprivate final class HTTPSession {
                 return
             }
             Log.info("Generated install.shortcut (\(signedBytes.count) bytes)")
+            // No Content-Disposition: attachment — iOS Safari treats that as
+            // a forced download and routes to Downloads. We want Safari to
+            // recognize the response as a .shortcut and offer to open it in
+            // Shortcuts.app directly. The application/x-apple-shortcut MIME
+            // is what iOS keys on for that prompt.
             respondData(
                 status: "200 OK",
                 body: signedBytes,
-                contentType: "application/x-apple-shortcut",
-                extraHeaders: ["Content-Disposition": "attachment; filename=\"ScreenshotCatch.shortcut\""]
+                contentType: "application/x-apple-shortcut"
             )
         } catch {
             Log.error("install shortcut generation failed: \(error)")

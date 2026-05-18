@@ -33,8 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         server = HTTPListener(
             port: port,
             urlProvider: {
-                let hostname = Host.current().localizedName ?? "mac"
-                return "http://\(hostname).local:\(port)/screenshot"
+                return "http://\(LocalHostName.mdnsHostname()):\(port)/screenshot"
             },
             handler: { [weak self] data in
                 guard let self else { return false }

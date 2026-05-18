@@ -35,11 +35,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     func refresh() {
         guard let menu = statusItem.menu else { return }
         menu.removeAllItems()
-        let hostname = Host.current().localizedName ?? "mac"
+        let hostname = LocalHostName.mdnsHostname()
         // Prefer the stable .local hostname — it survives DHCP IP changes when
         // you move between networks. Fall back to the raw IP for users on
         // networks where mDNS is blocked.
-        let primaryURL = "http://\(hostname).local:\(port)/screenshot"
+        let primaryURL = "http://\(hostname):\(port)/screenshot"
         let ipAddress = LANAddress.current() ?? "0.0.0.0"
         let ipURL = "http://\(ipAddress):\(port)/screenshot"
 
