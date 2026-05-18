@@ -30,14 +30,20 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     func refresh() {
         guard let menu = statusItem.menu else { return }
         menu.removeAllItems()
-        let address = LANAddress.current() ?? "0.0.0.0"
-        let urlString = "http://\(address):\(port)/screenshot"
-        let urlItem = NSMenuItem(title: urlString, action: nil, keyEquivalent: "")
-        urlItem.isEnabled = false
-        menu.addItem(urlItem)
-        let hostnameItem = NSMenuItem(title: "or http://\(Host.current().localizedName ?? "mac").local:\(port)/screenshot", action: nil, keyEquivalent: "")
-        hostnameItem.isEnabled = false
-        menu.addItem(hostnameItem)
+        let hostname = Host.current().localizedName ?? "mac"
+        // Prefer the stable .local hostname — it survives DHCP IP changes when
+        // you move between networks. Fall back to the raw IP for users on
+        // networks where mDNS is blocked.
+        let primaryURL = "http://\(hostname).local:\(port)/screenshot"
+        let ipAddress = LANAddress.current() ?? "0.0.0.0"
+        let ipURL = "http://\(ipAddress):\(port)/screenshot"
+
+        let primary = NSMenuItem(title: primaryURL, action: nil, keyEquivalent: "")
+        primary.isEnabled = false
+        menu.addItem(primary)
+        let ipItem = NSMenuItem(title: "or http://\(ipAddress):\(port)/screenshot", action: nil, keyEquivalent: "")
+        ipItem.isEnabled = false
+        menu.addItem(ipItem)
         menu.addItem(.separator())
 
         let show = NSMenuItem(title: "Show Last Screenshot", action: #selector(showLastAction), keyEquivalent: "")
@@ -48,10 +54,15 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         reveal.target = self
         menu.addItem(reveal)
 
-        let copy = NSMenuItem(title: "Copy Server URL", action: #selector(copyURLAction(_:)), keyEquivalent: "c")
-        copy.target = self
-        copy.representedObject = urlString
-        menu.addItem(copy)
+        let copyHost = NSMenuItem(title: "Copy URL (\(hostname).local)", action: #selector(copyURLAction(_:)), keyEquivalent: "c")
+        copyHost.target = self
+        copyHost.representedObject = primaryURL
+        menu.addItem(copyHost)
+
+        let copyIP = NSMenuItem(title: "Copy URL (IP)", action: #selector(copyURLAction(_:)), keyEquivalent: "")
+        copyIP.target = self
+        copyIP.representedObject = ipURL
+        menu.addItem(copyIP)
 
         menu.addItem(.separator())
         let quit = NSMenuItem(title: "Quit ScreenshotCatch", action: #selector(quitAction), keyEquivalent: "q")
