@@ -132,25 +132,30 @@ final class ThumbnailWindowController: NSObject {
     }
 
     private func saveAs() {
-        let savePanel = NSSavePanel()
-        savePanel.nameFieldStringValue = view.fileURL.lastPathComponent
-        savePanel.allowedContentTypes = [.png]
-        savePanel.canCreateDirectories = true
-        cancelTimer()
-        savePanel.begin { [weak self] response in
-            guard let self else { return }
-            if response == .OK, let dest = savePanel.url {
-                do {
-                    if FileManager.default.fileExists(atPath: dest.path) {
-                        try FileManager.default.removeItem(at: dest)
-                    }
-                    try FileManager.default.copyItem(at: self.view.fileURL, to: dest)
-                    self.view.flashConfirmation("Saved")
-                } catch {
-                    Log.error("Save copy failed: \(error)")
-                }
-            }
-            self.scheduleDismiss()
+        // One-click save: copy the screenshot to ~/Downloads/ with the same
+        // file name. Matches the simulator's "Save" button behavior — no save
+        // dialog (which has issues opening on top of a non-activating panel).
+        let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Downloads", isDirectory: true)
+        let src = view.fileURL
+        var dest = downloads.appendingPathComponent(src.lastPathComponent)
+        // If destination already exists (re-save of the same file), append a counter.
+        if FileManager.default.fileExists(atPath: dest.path) {
+            let base = dest.deletingPathExtension().lastPathComponent
+            let ext = dest.pathExtension
+            var i = 2
+            repeat {
+                dest = downloads.appendingPathComponent("\(base) (\(i)).\(ext)")
+                i += 1
+            } while FileManager.default.fileExists(atPath: dest.path) && i < 1000
+        }
+        do {
+            try FileManager.default.copyItem(at: src, to: dest)
+            Log.info("Saved \(dest.path)")
+            view.flashConfirmation("Saved to Downloads")
+        } catch {
+            Log.error("Save copy failed: \(error)")
+            view.flashConfirmation("Save failed")
         }
     }
 

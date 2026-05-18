@@ -9,7 +9,7 @@ final class ThumbnailView: NSView, NSDraggingSource {
     private let confirmationLabel = NSTextField(labelWithString: "")
     private let buttonStack = NSStackView()
     private var buttonBar: NSView?
-    private let closeButton = NSButton()
+    private let closeButton = HoverCursorButton()
     private var trackingArea: NSTrackingArea?
     private var localKeyMonitor: Any?
 
@@ -60,9 +60,9 @@ final class ThumbnailView: NSView, NSDraggingSource {
         buttonStack.alignment = .centerY
         buttonStack.distribution = .fillEqually
         buttonStack.translatesAutoresizingMaskIntoConstraints = false
-        let copy = makeActionButton(title: "Copy", action: #selector(copyPressed))
-        let save = makeActionButton(title: "Save", action: #selector(savePressed))
-        let open = makeActionButton(title: "Open", action: #selector(openPressed))
+        let copy = makeIconButton(symbol: "doc.on.clipboard", tooltip: "Copy", action: #selector(copyPressed))
+        let save = makeIconButton(symbol: "square.and.arrow.down", tooltip: "Save…", action: #selector(savePressed))
+        let open = makeIconButton(symbol: "arrow.up.forward.app", tooltip: "Open in Preview", action: #selector(openPressed))
         buttonStack.addArrangedSubview(copy)
         buttonStack.addArrangedSubview(save)
         buttonStack.addArrangedSubview(open)
@@ -226,33 +226,26 @@ final class ThumbnailView: NSView, NSDraggingSource {
         }
     }
 
-    private func makeActionButton(title: String, action: Selector) -> NSButton {
-        let attrs: [NSAttributedString.Key: Any] = [
-            .foregroundColor: NSColor.white,
-            .font: NSFont.systemFont(ofSize: 13, weight: .semibold),
-            .kern: 0.2
-        ]
-        let b = NSButton(title: title, target: self, action: action)
-        b.attributedTitle = NSAttributedString(string: title, attributes: attrs)
+    private func makeIconButton(symbol: String, tooltip: String, action: Selector) -> NSButton {
+        let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
+        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: tooltip)?
+            .withSymbolConfiguration(config)
+        let b = HoverCursorButton(image: image ?? NSImage(), target: self, action: action)
+        b.title = ""
+        b.contentTintColor = .white
         b.isBordered = false
         b.bezelStyle = .regularSquare
         b.setButtonType(.momentaryChange)
         b.focusRingType = .none
+        b.imagePosition = .imageOnly
+        b.imageScaling = .scaleProportionallyDown
         b.wantsLayer = true
         b.layer?.backgroundColor = NSColor.clear.cgColor
+        b.toolTip = tooltip
         b.translatesAutoresizingMaskIntoConstraints = false
-        b.widthAnchor.constraint(greaterThanOrEqualToConstant: 60).isActive = true
+        // No minimum width — icons fit in any width, distribute equally across
+        // the action bar via the parent stack view.
         return b
-    }
-
-    private func makeSeparator() -> NSView {
-        let v = NSView()
-        v.wantsLayer = true
-        v.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.28).cgColor
-        v.translatesAutoresizingMaskIntoConstraints = false
-        v.widthAnchor.constraint(equalToConstant: 1).isActive = true
-        v.heightAnchor.constraint(equalToConstant: 18).isActive = true
-        return v
     }
 
     @objc private func closePressed() { onClose?() }
@@ -276,5 +269,70 @@ final class ThumbnailView: NSView, NSDraggingSource {
 extension ThumbnailView: NSPasteboardItemDataProvider {
     nonisolated func pasteboard(_ pasteboard: NSPasteboard?, item: NSPasteboardItem, provideDataForType type: NSPasteboard.PasteboardType) {
         // The file URL is already inline on the pasteboard item; nothing extra to provide.
+    }
+}
+
+/// NSButton that swaps the pointer to `.pointingHand` while hovered AND
+/// shows a visible background tint so users get clear feedback on
+/// non-activating-panel windows (where AppKit's default cursor / hover
+/// machinery doesn't reliably fire).
+final class HoverCursorButton: NSButton {
+    private var trackingArea: NSTrackingArea?
+    private var isHovering = false
+    private var isPressed = false
+    /// Hover tint color. Override at construction time if you want a different
+    /// look (e.g. the close button uses a darker baseline).
+    var hoverTint: NSColor = NSColor.white.withAlphaComponent(0.14)
+    var pressTint: NSColor = NSColor.white.withAlphaComponent(0.24)
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let area = trackingArea { removeTrackingArea(area) }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect, .cursorUpdate],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        trackingArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isHovering = true
+        NSCursor.pointingHand.set()
+        refreshTint()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovering = false
+        NSCursor.arrow.set()
+        refreshTint()
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        // Belt-and-suspenders: AppKit calls this whenever the cursor crosses the
+        // tracking area boundary; ensures the cursor is right even if a stale
+        // override leaked from elsewhere.
+        NSCursor.pointingHand.set()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        isPressed = true
+        refreshTint()
+        super.mouseDown(with: event)
+        isPressed = false
+        refreshTint()
+    }
+
+    private func refreshTint() {
+        wantsLayer = true
+        if isPressed {
+            layer?.backgroundColor = pressTint.cgColor
+        } else if isHovering {
+            layer?.backgroundColor = hoverTint.cgColor
+        } else {
+            layer?.backgroundColor = NSColor.clear.cgColor
+        }
     }
 }
