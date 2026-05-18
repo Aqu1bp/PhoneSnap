@@ -34,7 +34,10 @@ final class ImageStore {
     private func filename() -> String {
         let fmt = DateFormatter()
         fmt.locale = Locale(identifier: "en_US_POSIX")
-        fmt.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
+        // Millisecond resolution prevents collisions when multiple screenshots
+        // arrive within the same second (e.g. via the cable bridge during a
+        // catalog refresh, or two rapid taps).
+        fmt.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss.SSS"
         return "Screenshot \(fmt.string(from: Date())).png"
     }
 
