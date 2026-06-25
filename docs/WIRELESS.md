@@ -4,6 +4,8 @@ PhoneSnap's supported workflow is wired: plug in a trusted iPhone, take a hardwa
 
 Wireless is still worth exploring, but it needs a different design than the removed QR/Shortcut/Gist path.
 
+Research conclusion: Apple-supported APIs can give us a good wireless transfer path, but not a reliable fully passive trigger. In other words, the phone can reach the Mac over the local network, but PhoneSnap should not promise "take a normal hardware screenshot anywhere on iPhone and the Mac receives it automatically in seconds" unless Apple adds a public trigger for that.
+
 ## What We Need
 
 The ideal behavior is:
@@ -13,17 +15,17 @@ The ideal behavior is:
 3. A Mac thumbnail appears quickly.
 4. User drags it into Codex, Cursor, Claude, ChatGPT, Slack, or an issue.
 
-The hard part is step 2 -> 3. iOS does not expose a reliable public "screenshot was just taken anywhere on the device" background event to arbitrary apps.
+The hard part is step 2 -> 3. iOS does not expose a reliable public "screenshot was just taken anywhere on the device" background event to arbitrary apps. PhotoKit can discover screenshot assets while the app is active and can catch up on changes across launches, but it is not a real-time background wake mechanism.
 
 ## Options
 
 | Option | Viable? | Notes |
 |--------|---------|-------|
-| Shortcuts + LAN HTTP | Not as a supported default | Requires user setup, Local Network permission, stable routing, and a trigger gesture. The old QR/Gist version made this feel automatic, but it was too fragile. |
-| iOS companion app with PhotoKit | Maybe | The app can observe Photos changes while active and can use PhotoKit change history across launches, but iOS background execution is constrained. This is the most realistic path to prototype. |
-| iOS companion app + App Intent / Action Button | Maybe | More reliable than a hand-built Shortcut because PhoneSnap owns the transfer code, but still needs a trigger. Best "wireless v1" candidate if automatic background delivery is not possible. |
-| Xcode/CoreDevice wireless capture | Maybe for a different workflow | Xcode can see paired devices and Device Hub can capture from physical devices, but installed command-line tools do not expose a stable screenshot command for physical devices. This would be "capture current device screen from Mac", not "react to iPhone screenshot". |
-| iCloud Photos polling | Poor fit | Too much latency and depends on user iCloud settings. |
+| iOS companion app + Bonjour + App Intent | Best v1 | PhoneSnap owns the transfer code, discovers the Mac on LAN, and exposes "Send Latest Screenshot to PhoneSnap" through App Intent, Shortcuts, Action Button, Back Tap, Siri, and Control Center. This is manual, but it can be one gesture. |
+| iOS companion app with PhotoKit observer/history | Partial | The app can observe Photos changes while active and use PhotoKit change history across launches, but iOS background execution is constrained. Good as an enhancement, not the core promise. |
+| Shortcuts + LAN HTTP | Prototype only | Requires user setup, Local Network permission, stable routing, and a trigger gesture. The old QR/Gist version made this feel automatic, but it was too fragile. |
+| Xcode/CoreDevice wireless capture | Not a product path | Xcode can see paired devices and Device Hub can capture from physical devices, but installed command-line tools do not expose a stable screenshot command for physical devices. This would be "capture current device screen from Mac", not "react to iPhone screenshot". |
+| iCloud Photos polling | Poor fit | Too much latency, sync can pause, and it depends on user iCloud settings. |
 | AirDrop / Universal Clipboard | Poor fit | Manual and interrupts the agent feedback loop. |
 
 ## Recommended Prototype
@@ -31,23 +33,26 @@ The hard part is step 2 -> 3. iOS does not expose a reliable public "screenshot 
 Build a small iOS companion app, also called PhoneSnap:
 
 - On first launch, request Photos permission and Local Network permission.
-- Discover the Mac app with Bonjour.
+- Discover the Mac app with Bonjour using Network.framework.
+- Pair once with a short code shown by the Mac app.
+- Add an App Intent named "Send Latest Screenshot to PhoneSnap" for Action Button, Back Tap, Siri, Control Center, and Shortcuts.
+- When triggered, fetch the newest `photoScreenshot` asset and send it to the paired Mac.
 - While the iOS app is foregrounded, watch the Photos library for new screenshot assets and send them immediately.
 - Persist a PhotoKit change-history token so the app can catch up after relaunch.
-- Add an App Shortcut / App Intent named "Send Latest Screenshot to PhoneSnap" for Action Button, Back Tap, Siri, and Control Center.
 
 Expected result:
 
-- Fully automatic while the companion app is open or recently active: possible, needs testing.
-- Always automatic in the background after a screenshot: unlikely with public APIs.
 - One-gesture wireless transfer: likely achievable and much cleaner than the old pure-Shortcut flow.
+- Fully automatic while the companion app is open or recently active: possible, needs testing.
+- Always automatic in the background after a screenshot: do not promise this with public APIs.
 
 ## Mac-Side Changes Needed
 
 If we prototype this, restore a local receiver, but keep it clean:
 
 - Bonjour service: `_phonesnap._tcp`
-- Small HTTP endpoint: `POST /screenshots`
+- Local Network usage description and declared Bonjour service type in the iOS app
+- Small HTTP endpoint or Network.framework connection for screenshot upload
 - Shared pairing token generated by the Mac app
 - iOS app discovers Mac over Bonjour and includes the token in requests
 - Mac only accepts requests from paired devices
@@ -58,5 +63,9 @@ This is different from the removed QR/Gist flow: no GitHub dependency, no hardco
 
 - Apple's Shortcuts automation docs describe event, travel, communication, and setting triggers, but not a screenshot-created trigger: https://support.apple.com/guide/shortcuts/intro-to-personal-automation-apd690170742/ios
 - Shortcuts can run from the Action Button on supported iPhones: https://support.apple.com/guide/shortcuts/run-shortcuts-with-the-action-button-apdfea15680b/ios
+- App Intents let app actions appear in Shortcuts, Siri, Spotlight, controls, and other system surfaces: https://developer.apple.com/documentation/appintents
 - PhotoKit supports observing library changes and change history, useful for a companion app prototype: https://developer.apple.com/documentation/photokit/observing-changes-in-the-photo-library and https://developer.apple.com/videos/play/wwdc2022/10132/
+- `PHAssetMediaSubtype.photoScreenshot` identifies screenshot assets: https://developer.apple.com/documentation/photos/phassetmediasubtype/photoscreenshot
+- Background execution is opportunistic and not guaranteed for immediate regular work: https://developer.apple.com/videos/play/wwdc2025/227/
+- Bonjour discovery/listening is supported through Network.framework: https://developer.apple.com/documentation/network/nwbrowser and https://developer.apple.com/documentation/network/nwlistener
 - Xcode Device Hub supports physical-device capture workflows, but that is a developer-device capture model rather than an iPhone-screenshot event model: https://developer.apple.com/documentation/xcode/capturing-screenshots-and-videos-from-devices
