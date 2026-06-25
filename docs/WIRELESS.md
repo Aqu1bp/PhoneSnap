@@ -4,9 +4,9 @@ PhoneSnap's supported workflow is wired: plug in a trusted iPhone, take a hardwa
 
 Wireless is still worth exploring, but it needs a different design than the removed QR/Shortcut/Gist path.
 
-Research conclusion: because PhoneSnap is mainly for developers building their own Flutter, React Native, or native mobile apps with coding agents, a separate installable phone companion app is the wrong primary model. The better wireless model is a dev-only sender embedded in the app under test.
+Research conclusion: the hard part is not taking the screenshot. iOS already does that, and PhoneSnap's wired mode already proves the screenshot-to-thumbnail workflow. The hard part is getting screenshot bytes from the phone to the Mac over Wi-Fi without adding setup friction.
 
-Apple-supported APIs can give us a good wireless transfer path. The missing piece is a global trigger for arbitrary apps, but that matters less when the app being screenshotted is the developer's own debug build. That app can detect screenshot events while foregrounded, capture its own UI, and send the image to the Mac.
+Apple-supported APIs can give us a good Mac receiver and local-network transfer path. What they do not give us is a zero-install, zero-integration way for a Mac-only app to pull new iPhone screenshots over Wi-Fi. Some process on the phone, or an Apple sync service such as iCloud Photos, has to send the image.
 
 ## What We Need
 
@@ -18,56 +18,55 @@ The ideal behavior for PhoneSnap's core audience is:
 4. A Mac thumbnail appears quickly.
 5. User drags it into Codex, Cursor, Claude, ChatGPT, Slack, or an issue.
 
-The hard part only applies to arbitrary apps. iOS does not expose a reliable public "screenshot was just taken anywhere on the device" background event to unrelated apps. But the foreground app can receive `UIApplication.userDidTakeScreenshotNotification` after the user takes a screenshot. That gives a debug SDK a clean trigger without needing Photos access or a separate iOS app.
+The hard part is step 3 -> 4. A Mac app cannot passively receive screenshot bytes over Wi-Fi unless something on the phone sends them. The product question is which sender is acceptable: Shortcut, companion app, debug SDK/plugin, iCloud Photos, or developer tooling. Each one adds a different kind of friction.
 
 ## Options
 
 | Option | Viable? | Notes |
 |--------|---------|-------|
-| Dev-only app SDK/plugin + Bonjour | Best v1 | Add PhoneSnap to the Flutter/RN/native app being built. In debug builds, detect screenshot events or expose a dev gesture, capture the current UI, and send it to the Mac over LAN. |
-| Wired USB capture | Current default | Still the lowest-friction and most universal path. Works without integrating anything into the app under test. |
-| iOS companion app + Bonjour + App Intent | Wrong primary fit | Useful only if PhoneSnap needs to support screenshots from arbitrary apps. For app builders, it adds install/setup friction and cannot observe screenshots while the user's app is foregrounded. |
+| Wired USB capture | Current default | Still the lowest-friction and most universal path. Works without installing or integrating anything on the phone. |
+| Mac receiver + sender contract | Best infrastructure spike | Build the reusable local receiver first: Bonjour, pairing token, upload endpoint, thumbnail creation. This proves the wireless transport independent of the eventual phone-side sender. |
+| Shortcuts + LAN upload | Best no-app-code sender candidate | Lets the user send the latest screenshot without modifying their Flutter/RN app, but setup, local-network permissions, and reliable Mac discovery are the weak points. The old QR/Gist version was too fragile. |
+| Dev-only app SDK/plugin + Bonjour | Optional, not primary | Technically strong for teams willing to add debug-only code, but it is too much product friction for the default PhoneSnap story. It also captures or re-reads from the app context, which is not the same as a universal hardware-screenshot pipeline. |
+| iOS companion app + Bonjour + App Intent | Wrong primary fit | Adds a separate install and still cannot passively observe screenshots while the developer is using their app under test. |
 | iOS companion app with PhotoKit observer/history | Poor primary fit | The companion app can observe Photos only while active and can catch up across launches, but it is not active while the developer is using their app under test. |
-| Shortcuts + LAN HTTP | Prototype only | Requires user setup, Local Network permission, stable routing, and a trigger gesture. The old QR/Gist version made this feel automatic, but it was too fragile. |
 | Xcode/CoreDevice wireless capture | Not a product path | Xcode can see paired devices and Device Hub can capture from physical devices, but installed command-line tools do not expose a stable screenshot command for physical devices. This would be "capture current device screen from Mac", not "react to iPhone screenshot". |
 | iCloud Photos polling | Poor fit | Too much latency, sync can pause, and it depends on user iCloud settings. |
 | AirDrop / Universal Clipboard | Poor fit | Manual and interrupts the agent feedback loop. |
 
 ## Recommended Prototype
 
-Build a small dev-only PhoneSnap sender for the app under test:
+Build the wireless transport first, not a Flutter/RN plugin first:
 
 - Mac app advertises `_phonesnap._tcp` with Bonjour.
-- App under test includes a debug-only PhoneSnap package/plugin.
-- Sender discovers the Mac with Network.framework and pairs once with a short code.
-- On iOS, sender listens for `UIApplication.userDidTakeScreenshotNotification` while the app is foregrounded.
-- Sender captures the current app UI directly, not from Photos.
-- Sender uploads the image to the paired Mac, which creates the draggable thumbnail.
-- Release builds exclude or disable the sender.
+- Mac app shows a short pairing code and creates a temporary pairing token.
+- Mac app exposes one upload contract, for example `POST /screenshots`, accepting PNG/JPEG plus token.
+- Any sender that can reach the Mac can upload an image and get the same draggable thumbnail behavior as wired mode.
+- Validate this with `curl` from another machine or phone browser before building any phone-side product surface.
+- Then test the lowest-friction iPhone sender candidate: a manually installed Shortcut that sends the latest screenshot to the paired Mac.
 
-Framework-specific shape:
+Sender candidates:
 
-- Flutter: provide a `PhoneSnapCapture` wrapper using `RepaintBoundary` / `RenderRepaintBoundary.toImage`, plus a small platform channel for screenshot-event detection and Bonjour upload.
-- React Native: provide a dev-only package using a native screenshot-event listener and either native view capture or `react-native-view-shot`-style capture.
-- Native iOS: provide a small Swift package around screenshot notification, window snapshotting, Bonjour pairing, and upload.
+- Flutter/RN/native plugin: possible later for teams that accept debug-only code in their app.
+- iOS companion app: possible later only if arbitrary-app support becomes important.
+- Shortcut: still the best candidate if the goal is no app-code integration, but it needs a better pairing/discovery story than the removed QR/Gist flow.
 
 Expected result:
 
-- Automatic for the developer's app while it is foregrounded in debug mode: likely achievable.
-- No Photos permission needed for the primary path.
-- No separate iOS app install.
-- No support for arbitrary third-party apps unless the wired mode or a separate manual flow is used.
+- Transport layer: likely achievable.
+- Zero-friction wireless screenshot capture: not proven.
+- Plugin-based sender: technically possible, but not the default product bet.
+- Product default remains wired until a low-friction sender is proven.
 
 ## Mac-Side Changes Needed
 
 If we prototype this, restore a local receiver, but keep it clean:
 
 - Bonjour service: `_phonesnap._tcp`
-- Local Network usage description and declared Bonjour service type in the app under test
 - Small HTTP endpoint or Network.framework connection for screenshot upload
 - Shared pairing token generated by the Mac app
-- App under test discovers Mac over Bonjour and includes the token in requests
-- Mac only accepts requests from paired debug builds
+- Sender includes the token in requests
+- Mac only accepts requests from paired senders
 
 This is different from the removed QR/Gist flow: no GitHub dependency, no hardcoded IP, no generated Shortcut, no unauthenticated LAN upload.
 
