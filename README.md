@@ -1,18 +1,20 @@
 # PhoneSnap
 
-Mirror the iOS Simulator screenshot thumbnail experience for screenshots you take on a **real iPhone connected by cable**.
+Drag real iPhone screenshots into your coding agent.
 
-Take a screenshot on iPhone -> a floating thumbnail pops in the bottom-right corner of your Mac. Drag it directly into Claude Code, Cursor, Slack, Notes, or hit **Copy** and paste anywhere.
+PhoneSnap is a tiny Mac menu bar app for AI-assisted iOS development. Plug in your iPhone, take a screenshot, and a draggable thumbnail appears on your Mac so you can drop real-device UI context into Codex, Cursor, Claude, ChatGPT, Slack, or an issue.
+
+The point is the feedback loop: screenshot real hardware, drag it into the agent, keep building.
 
 ## Current Scope
 
-PhoneSnap is now intentionally **wired-only**.
+PhoneSnap is currently **wired-only** because that is the path that is reliable enough for the agent workflow.
 
 - Supported: iPhone connected to the Mac over USB, trusted by the Mac.
 - Removed/deprecated: QR pairing, iOS Shortcuts, GitHub Gist rendezvous, and LAN HTTP upload.
 - No third-party services, no paid developer account, no iCloud requirement.
 
-The wireless path was removed because it was not reliable enough to present as a supported feature.
+Wireless is being researched, but not exposed as a supported feature until it can be tested end to end. See [docs/WIRELESS.md](docs/WIRELESS.md).
 
 ## Requirements
 
@@ -38,17 +40,24 @@ A small iPhone icon appears in the menu bar. The app is running.
 2. Unlock the iPhone.
 3. If prompted, tap **Trust This Computer**.
 4. Take a screenshot on the iPhone.
-5. The Mac shows a floating thumbnail near the bottom-right of the current screen.
+5. Drag the Mac thumbnail into Codex, Cursor, Claude, ChatGPT, Slack, or wherever the agent can see images.
 
 The app uses Apple's ImageCaptureCore framework. macOS exposes a trusted, plugged-in iPhone as a camera-class device; PhoneSnap watches for new camera-roll items after startup, filters likely screenshots, downloads them, saves them, copies them to the clipboard, and shows the thumbnail.
 
+## Agent Workflow
+
+- Test the app on a real device.
+- Take a screenshot of the broken or awkward UI.
+- Drag PhoneSnap's thumbnail into the agent chat.
+- Ask for a fix with real visual context instead of describing layout by hand.
+
 ## Thumbnail Behavior
 
-- Appears bottom-right of the screen containing the cursor, with a fade-in.
+- Appears bottom-right of the screen containing the cursor.
 - Auto-copies the screenshot to the clipboard on arrival.
 - Shows action buttons for copy, save, and open.
 - Click the image to open it in Preview.
-- Drag the image directly into Claude Code, Cursor, Slack, Mail, or any file drop target.
+- Drag the image directly into agent apps, chat apps, issue trackers, or any file drop target.
 - Press ESC or click the close button to dismiss.
 - Auto-fades after 8 seconds; hovering resets the timer.
 
@@ -93,6 +102,7 @@ iPhone over USB
 | Symptom | Fix |
 |---------|-----|
 | Nothing appears after taking a screenshot | Unlock the iPhone, reconnect the cable, and accept **Trust This Computer** if prompted. |
+| Dragging into an agent does not attach the image | Use the copy button or paste with Command-V; PhoneSnap writes PNG, TIFF, and file URL pasteboard types. |
 | Old photos appear | Quit and reopen the app, then take a fresh screenshot. |
 | Clipboard paste fails | Use the thumbnail copy button; if it still fails, run from terminal with `swift run PhoneSnap` and check logs. |
 | App does not launch | Rebuild with `./scripts/build-app.sh`. |

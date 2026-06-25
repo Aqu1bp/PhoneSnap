@@ -38,3 +38,5 @@ Expected: a trusted plugged-in iPhone appears as a camera-class device.
 ## Out of Scope
 
 There is no HTTP probe anymore because the LAN receiver was removed. Wireless Shortcut and QR flows are not part of the supported test matrix.
+
+Wireless research is tracked in `docs/WIRELESS.md`; do not add it to the supported test matrix until a prototype passes real-device testing.

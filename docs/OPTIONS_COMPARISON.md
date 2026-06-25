@@ -8,5 +8,6 @@
 | GitHub Gist rendezvous | Removed | Solved changing IPs, but introduced a third-party dependency and still depended on the unreliable wireless flow. |
 | iCloud Photos polling | Rejected | Latency is too high and sync behavior is outside app control. |
 | AirDrop | Rejected | Manual and not automatable for the intended workflow. |
+| iOS companion app + PhotoKit/App Intent | Research | Most plausible future wireless path. Needs real-device testing because iOS background execution may prevent truly automatic screenshot delivery. |
 
 Current product direction: keep PhoneSnap wired-only until there is a wireless design that can be tested and trusted end to end.
