@@ -3,8 +3,9 @@
 DerivedData/
 *.xcuserstate
 ScreenshotCatch.app/
+PhoneSnap.app/
 
-# captured screenshots that landed in repo while save folder default was Desktop/ScreenshotCatch
+# captured screenshots that land in repo if a save folder is pointed here
 Screenshot*.png
 
 # generated probe sample

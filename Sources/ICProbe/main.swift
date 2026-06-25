@@ -2,11 +2,8 @@ import Foundation
 import ImageCaptureCore
 
 // Standalone probe: enumerate ICDeviceBrowser and report what's found.
-// Run twice:
-//   1. With iPhone plugged in via cable — confirm baseline support.
-//   2. With cable disconnected, iPhone on same Wi-Fi (after Finder
-//      "Show this iPhone when on Wi-Fi" is enabled) — answers the
-//      wireless question.
+// Run with an iPhone plugged in via cable to confirm ImageCaptureCore can see
+// the device and stream newly added camera-roll items.
 //
 // Build:  swift build --target ICProbe
 // Run:    .build/debug/ICProbe [--watch] [--seconds N]

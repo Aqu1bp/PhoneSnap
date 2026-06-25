@@ -4,9 +4,8 @@ import Darwin
 // UsbmuxdProbe — talk directly to /var/run/usbmuxd over its documented Unix
 // socket plist protocol and ask for the device list.
 //
-// Goal: determine whether Apple's system usbmuxd reports a Wi-Fi-paired iPhone
-// (ConnectionType = "Network") when the iPhone is on the same Wi-Fi as the
-// Mac but NOT plugged in via cable.
+// Historical probe: determine whether Apple's system usbmuxd reports a
+// Wi-Fi-paired iPhone. The supported PhoneSnap app path is wired-only.
 //
 // Protocol (libusbmuxd / Apple usbmuxd, plist format):
 //   Header (16 bytes, little-endian):
@@ -143,7 +142,7 @@ do {
 
     let request: [String: Any] = [
         "MessageType": "ListDevices",
-        "ClientVersionString": "ScreenshotCatch-Probe-0.1",
+        "ClientVersionString": "PhoneSnap-Probe-0.1",
         "ProgName": "UsbmuxdProbe",
         "kLibUSBMuxVersion": 3
     ]
@@ -192,12 +191,12 @@ do {
                 ($0["Properties"] as? [String: Any])?["ConnectionType"] as? String == "USB"
             }.count
             print(String(repeating: "─", count: 60))
-            print("Summary: \(networkCount) wireless, \(usbCount) USB")
+            print("Summary: \(networkCount) network, \(usbCount) USB")
             if networkCount > 0 {
-                print("✅ Apple's system usbmuxd EXPOSES Wi-Fi-paired iPhones via the public plist protocol.")
-                print("   We can build a wireless screenshot-watcher with zero third-party deps.")
+                print("Apple's system usbmuxd exposes network-paired iPhones via the plist protocol.")
+                print("PhoneSnap still treats this as research only; the supported app is wired-only.")
             } else {
-                print("ℹ️  No 'Network' devices seen. If your iPhone is on the same Wi-Fi and paired,")
+                print("No 'Network' devices seen. If your iPhone is on the same Wi-Fi and paired,")
                 print("   either Wi-Fi sync isn't enabled in Finder, or usbmuxd doesn't surface wireless")
                 print("   iPhones via this protocol path on iOS 26 (we'd need to fall back to pymobiledevice3")
                 print("   or private MobileDevice.framework for the wireless case).")

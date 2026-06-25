@@ -7,13 +7,13 @@ final class ImageStore {
     let folder: URL
 
     init() {
-        let envPath = ProcessInfo.processInfo.environment["SCREENSHOTCATCH_DIR"]
+        let envPath = ProcessInfo.processInfo.environment["PHONESNAP_DIR"]
         if let envPath, !envPath.isEmpty {
             folder = URL(fileURLWithPath: (envPath as NSString).expandingTildeInPath, isDirectory: true)
         } else {
             let pictures = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first
                 ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Pictures", isDirectory: true)
-            folder = pictures.appendingPathComponent("ScreenshotCatch", isDirectory: true)
+            folder = pictures.appendingPathComponent("PhoneSnap", isDirectory: true)
         }
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     }

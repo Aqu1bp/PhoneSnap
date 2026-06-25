@@ -2,17 +2,17 @@
 import PackageDescription
 
 let package = Package(
-    name: "ScreenshotCatch",
+    name: "PhoneSnap",
     platforms: [.macOS(.v13)],
     products: [
-        .executable(name: "ScreenshotCatch", targets: ["ScreenshotCatch"]),
+        .executable(name: "PhoneSnap", targets: ["PhoneSnap"]),
         .executable(name: "ICProbe", targets: ["ICProbe"]),
         .executable(name: "UsbmuxdProbe", targets: ["UsbmuxdProbe"])
     ],
     targets: [
         .executableTarget(
-            name: "ScreenshotCatch",
-            path: "Sources/ScreenshotCatch"
+            name: "PhoneSnap",
+            path: "Sources/PhoneSnap"
         ),
         .executableTarget(
             name: "ICProbe",

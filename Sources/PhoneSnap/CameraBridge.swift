@@ -16,8 +16,7 @@ import ImageCaptureCore
 /// - From then on, any further `didAdd` call is a genuinely new item — i.e.
 ///   a fresh screenshot or photo the user just took. We filter for likely
 ///   screenshots (PNG, or HEIC where the file name pattern + screen-shape
-///   resolution match), download it, and hand it to the same pipeline the
-///   LAN HTTP path uses.
+///   resolution match), download it, and hand it to the thumbnail pipeline.
 final class CameraBridge: NSObject, ICCameraDeviceDownloadDelegate {
     typealias NewImageHandler = (Data, String) -> Void
 
@@ -34,7 +33,7 @@ final class CameraBridge: NSObject, ICCameraDeviceDownloadDelegate {
     /// delivered, so a snapshot-the-catalog-then-watch-for-new approach gets
     /// flooded by the catalog itself once it starts streaming in.
     private var newItemThreshold = Date.distantFuture
-    private let downloadQueue = DispatchQueue(label: "screenshotcatch.camerabridge.download", qos: .userInitiated)
+    private let downloadQueue = DispatchQueue(label: "phonesnap.camerabridge.download", qos: .userInitiated)
 
     init(onNewImage: @escaping NewImageHandler) {
         self.onNewImage = onNewImage
@@ -67,7 +66,7 @@ final class CameraBridge: NSObject, ICCameraDeviceDownloadDelegate {
     // MARK: download
     private func download(_ file: ICCameraFile) {
         let tmpDir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-        let filename = "ScreenshotCatch-\(UUID().uuidString)-\(file.name ?? "image")"
+        let filename = "PhoneSnap-\(UUID().uuidString)-\(file.name ?? "image")"
         let options: [ICDownloadOption: Any] = [
             .downloadsDirectoryURL: tmpDir,
             .saveAsFilename: filename,
