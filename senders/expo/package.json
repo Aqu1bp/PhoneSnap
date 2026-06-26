@@ -1,0 +1,15 @@
+{
+  "name": "@phonesnap/expo-sender",
+  "version": "0.0.0",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "peerDependencies": {
+    "@expo/config-plugins": "*",
+    "expo": "*",
+    "expo-screen-capture": "*",
+    "react": "*",
+    "react-native": "*",
+    "react-native-view-shot": "*"
+  }
+}

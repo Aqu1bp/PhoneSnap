@@ -62,6 +62,7 @@ The receiver caps request bodies at 32 MB, accepts raw image bodies and multipar
 - current mode
 - wireless receiver status
 - set up wireless Shortcut
+- copy dev sender config
 - show last screenshot
 - reveal save folder
 - quit

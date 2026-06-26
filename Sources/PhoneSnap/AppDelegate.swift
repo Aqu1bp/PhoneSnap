@@ -30,7 +30,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             },
             onShowLast: { [weak self] in self?.presenter.showLast() },
             onRevealFolder: { [weak self] in self?.store.revealInFinder() },
-            onSetupWireless: { [weak self] in self?.wirelessSetupWindow.show() }
+            onSetupWireless: { [weak self] in self?.wirelessSetupWindow.show() },
+            onCopyDevSenderConfig: { [weak self] in self?.copyDevSenderConfig() }
         )
 
         wirelessReceiver = WirelessReceiver(
@@ -81,6 +82,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             hostName: LANAddress.bonjourHostName(),
             lanIP: LANAddress.currentIPv4()
         )
+    }
+
+    private func copyDevSenderConfig() {
+        let info = wirelessSetupInfo()
+        let uploadURL = "http://\(info.hostName):\(wirelessPort)/api/v1/upload/\(wirelessPairing.pairID)"
+        var lines = [
+            "# PhoneSnap dev sender config. Do not commit this token.",
+            "PHONESNAP_UPLOAD_URL=\(uploadURL)",
+            "PHONESNAP_TOKEN=\(wirelessPairing.token)"
+        ]
+        if let lanIP = info.lanIP {
+            lines.append("PHONESNAP_UPLOAD_URL_FALLBACK=http://\(lanIP):\(wirelessPort)/api/v1/upload/\(wirelessPairing.pairID)")
+        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
+        Log.info("Copied dev sender config to clipboard")
     }
 
     @discardableResult
