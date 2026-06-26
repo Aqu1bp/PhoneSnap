@@ -11,13 +11,13 @@ final class WirelessReceiver {
         var menuTitle: String {
             switch self {
             case .stopped:
-                return "Wireless Shortcut receiver: stopped"
+                return "Wireless Shortcut batch receiver: stopped"
             case .starting:
-                return "Wireless Shortcut receiver: starting"
+                return "Wireless Shortcut batch receiver: starting"
             case .ready:
-                return "Wireless Shortcut receiver: ready"
+                return "Wireless Shortcut batch receiver: ready"
             case .failed(let message):
-                return "Wireless Shortcut receiver: unavailable - \(message)"
+                return "Wireless Shortcut batch receiver: unavailable - \(message)"
             }
         }
     }
@@ -407,7 +407,7 @@ private final class WirelessHTTPSession {
         <body>
           <main>
             <h1>Set Up PhoneSnap</h1>
-            <p>Open the signed PhoneSnap Shortcut on this iPhone, then tap Add Shortcut in Shortcuts.</p>
+            <p>Open the signed PhoneSnap Shortcut on this iPhone, then tap Add Shortcut in Shortcuts. It sends the recent screenshot batch to this Mac.</p>
             <a class="button" href="\(escapedShortcutPath)">Open PhoneSnap Shortcut</a>
             <p class="note">iOS will still ask you to add the Shortcut. The first run may also ask for Photos or local-network permission.</p>
             <p class="note">Setup page: <code>\(escapedSetupURL)</code></p>

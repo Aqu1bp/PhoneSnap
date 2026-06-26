@@ -1,6 +1,6 @@
 # ARCHITECTURE - PhoneSnap
 
-PhoneSnap is a single-process macOS menu bar app. Its primary path watches a trusted USB-connected iPhone through ImageCaptureCore, downloads new screenshot-like camera-roll items, saves them as PNG files, copies them to the pasteboard, and presents a floating thumbnail. It also runs an optional local HTTP receiver for the generated wireless Shortcut setup/upload path.
+PhoneSnap is a single-process macOS menu bar app. Its primary path watches a trusted USB-connected iPhone through ImageCaptureCore, downloads new screenshot-like camera-roll items, saves them as PNG files, copies them to the pasteboard, and presents a floating wired thumbnail. It also runs a local HTTP receiver for the generated wireless Shortcut batch fallback.
 
 ## Process Model
 
@@ -15,9 +15,12 @@ NSApplication
 ├── WirelessSetupWindowController
 │   └── setup URL, QR code, copy/open actions
 ├── ImageStore
-└── ThumbnailPresenter
-    └── ThumbnailWindowController
-        └── ThumbnailView
+├── ThumbnailPresenter
+│   └── ThumbnailWindowController
+│       └── ThumbnailView
+└── WirelessBatchPresenter
+    └── RecentFromIPhonePanelController
+        └── RecentFromIPhoneThumbnailView
 ```
 
 ## CameraBridge
@@ -46,14 +49,24 @@ The receiver caps request bodies at 32 MB, accepts raw image bodies and multipar
 
 `WirelessPairing` persists a short random pair ID and high-entropy bearer token in `UserDefaults`, so installed Shortcuts keep working across app restarts.
 
-`WirelessShortcutGenerator` builds the Shortcut plist with the upload URL/token baked in and signs it with `/usr/bin/shortcuts sign --mode anyone`. Signing errors are served as clear HTTP `500` responses.
+`WirelessShortcutGenerator` builds the Shortcut plist with the upload URL/token baked in and signs it with `/usr/bin/shortcuts sign --mode anyone`. The generated Shortcut asks Photos for the latest 10 screenshots, repeats over them, and posts one image per request. Signing errors are served as clear HTTP `500` responses.
 
 ## Image Pipeline
+
+Wired USB keeps the original single-thumbnail behavior:
 
 1. `AppDelegate.deliver(data:source:)`
 2. `ImageStore.save(data:)`
 3. `ImageStore` decodes the incoming bytes with `NSImage`, normalizes to PNG, and writes to `~/Pictures/PhoneSnap` unless `PHONESNAP_DIR` overrides it.
 4. Main queue presents the thumbnail and writes pasteboard data.
+
+Wireless Shortcut uploads use a separate batch presentation path:
+
+1. `WirelessReceiver` accepts `POST /api/v1/upload/<pairId>`.
+2. `AppDelegate.deliverWireless(data:)` saves each image through `ImageStore`.
+3. Main queue writes the latest upload to pasteboard and enqueues the saved URL with `WirelessBatchPresenter`.
+4. `WirelessBatchPresenter` debounces arrivals for a short quiet window and presents `RecentFromIPhonePanelController`.
+5. `RecentFromIPhoneThumbnailView` supports file URL drag-out for each saved image.
 
 ## UI
 
@@ -62,7 +75,6 @@ The receiver caps request bodies at 32 MB, accepts raw image bodies and multipar
 - current mode
 - wireless receiver status
 - set up wireless Shortcut
-- copy dev sender config
 - show last screenshot
 - reveal save folder
 - quit
@@ -70,6 +82,8 @@ The receiver caps request bodies at 32 MB, accepts raw image bodies and multipar
 `ThumbnailWindowController` owns a borderless non-activating `NSPanel`. It anchors to the bottom-right of the screen containing the pointer, clamps inside the visible frame, fades in, and auto-dismisses after 8 seconds unless hovered.
 
 `ThumbnailView` handles the image, action buttons, ESC/command shortcuts, and file drag-out.
+
+`RecentFromIPhonePanelController` owns a titled floating panel named **Recent from iPhone**. It shows the current wireless batch in a horizontal strip and each thumbnail can be dragged to an agent app or file drop target. Wireless uploads do not show `ThumbnailPresenter` by default.
 
 ## Configuration
 
@@ -79,3 +93,5 @@ The receiver caps request bodies at 32 MB, accepts raw image bodies and multipar
 ## Wireless Scope
 
 The old GitHub/Gist rendezvous and direct `shortcuts://import-shortcut` QR flow are not part of the runtime. The current wireless setup uses a normal local HTTP setup page that serves a signed `PhoneSnap.shortcut`.
+
+Dev senders are deprecated/experimental and are not exposed in the main menu. The sender package folders remain as references, but the product path is USB automatic first and Wireless Shortcut Batch fallback second.

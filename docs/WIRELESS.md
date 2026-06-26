@@ -2,16 +2,17 @@
 
 PhoneSnap includes a local wireless receiver. Wired USB remains the primary universal automatic workflow because it is still the most reliable way to react to a normal iPhone screenshot without app-specific code.
 
-Wireless has two sender types:
+Wireless has one main fallback sender:
 
 - The Mac app starts a small HTTP receiver while PhoneSnap is running.
-- Embedded dev senders provide automatic wireless for the foreground app being built. They snapshot app UI and upload directly.
-- The generated Shortcut remains a fallback/manual sender. The user runs it after taking a screenshot, and it sends the latest screenshot from Photos.
-- The upload uses the same `ImageStore`, pasteboard, and thumbnail delivery path as wired mode.
+- The generated Shortcut is the fallback/manual sender. The user runs it after taking screenshots, and it sends the latest 10 screenshots from Photos.
+- The Shortcut asks for the latest 10 screenshots and posts each image as a separate upload.
+- The Mac saves each wireless upload, updates pasteboard to the latest upload, and presents a floating **Recent from iPhone** batch panel instead of the wired single thumbnail.
+- Embedded dev senders are deprecated/experimental references, not the main product path.
 
 No GitHub/Gist rendezvous, iCloud sync, third-party service, or manual Shortcut configuration is used.
 
-See [DEV_SENDERS.md](DEV_SENDERS.md) for the automatic wireless direction and sender package references.
+See [DEV_SENDERS.md](DEV_SENDERS.md) for the deprecated/experimental sender package references.
 
 ## Shortcut Fallback Setup
 
@@ -23,9 +24,9 @@ See [DEV_SENDERS.md](DEV_SENDERS.md) for the automatic wireless direction and se
 6. Tap Add Shortcut in Shortcuts.
 7. Take a screenshot, then run the PhoneSnap Shortcut from Shortcuts, Action Button, Back Tap, Control Center, Home Screen, or another Shortcut trigger.
 
-iOS will still ask the user to add the Shortcut. The first run may also ask for Photos or local-network permission.
+iOS will still ask the user to add the Shortcut. The first run may also ask for Photos or local-network permission. Existing installed PhoneSnap Shortcuts should be removed and reinstalled from the setup page to get the latest batch behavior.
 
-For automatic wireless, choose **Copy Dev Sender Config** in the PhoneSnap Mac menu, add a debug-only dev sender to the app under development, and pass it the copied upload URL and bearer token. Dev senders should snapshot app UI, not Photos.
+The deprecated dev sender config menu item is no longer shown. Dev senders can still use the same upload contract for experiments, but they are not part of the main setup flow.
 
 ## Routes
 
@@ -57,7 +58,7 @@ Authorization: Bearer <token>
 
 The receiver also accepts `?token=<token>` as a fallback for sender compatibility, but the generated Shortcut uses the Authorization header.
 
-The upload contract is intentionally unchanged for dev senders:
+The upload contract is intentionally unchanged for the generated Shortcut and deprecated dev sender experiments:
 
 ```text
 POST /api/v1/upload/<pairId>
@@ -72,7 +73,7 @@ PhoneSnap stores two values in `UserDefaults`:
 - `pairId`: short stable random ID used in setup/upload paths.
 - `token`: high-entropy bearer token used to authorize uploads.
 
-The pair ID is not treated as the only secret. Existing installed Shortcuts keep working across Mac app restarts because both values persist. Dev senders should receive these values from local debug configuration and should not commit or persist real tokens.
+The pair ID is not treated as the only secret. Existing installed Shortcuts keep working across Mac app restarts because both values persist, but older installed Shortcuts should be reinstalled to get batch upload behavior. Dev sender experiments should receive these values from local debug configuration and should not commit or persist real tokens.
 
 ## Network Addresses
 
@@ -86,8 +87,9 @@ The user should not need to type the route, method, headers, or body. If `.local
 ## Limitations
 
 - USB remains the only universal automatic sender.
-- Automatic wireless is foreground-app-only and requires an embedded debug sender.
-- Shortcut wireless is not automatic. The user must run the PhoneSnap Shortcut after taking a screenshot.
+- Shortcut wireless is not automatic. The user must run the PhoneSnap Shortcut after taking screenshots.
+- Wireless Shortcut is batch-oriented and opens the **Recent from iPhone** panel instead of the wired single-thumbnail panel.
+- Dev senders are deprecated/experimental and no longer exposed in the main menu.
 - The iPhone and Mac must be on a network where the iPhone can reach the Mac.
 - macOS firewall or another process on the configured port can block the receiver.
 - The signed Shortcut generation depends on `/usr/bin/shortcuts`.

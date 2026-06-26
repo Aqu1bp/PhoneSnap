@@ -2,6 +2,8 @@
 
 Reference debug sender for native UIKit apps.
 
+Deprecated/experimental: dev senders are not the current PhoneSnap happy path. Prefer wired USB automatic mode or the generated Wireless Shortcut Batch fallback unless you are explicitly experimenting with foreground-app debug capture.
+
 It observes `UIApplication.userDidTakeScreenshotNotification` in DEBUG builds, snapshots the foreground active `UIWindow`, PNG-encodes it, and uploads it to the existing PhoneSnap Mac receiver:
 
 ```text

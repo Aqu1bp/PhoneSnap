@@ -1,5 +1,7 @@
 # PhoneSnap React Native Sender
 
+Deprecated/experimental: dev senders are not the current PhoneSnap happy path. Prefer wired USB automatic mode or the generated Wireless Shortcut Batch fallback unless you are explicitly experimenting with foreground-app debug capture.
+
 Intended API for a future non-Expo React Native package:
 
 ```ts

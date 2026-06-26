@@ -6,18 +6,15 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let onShowLast: () -> Void
     private let onRevealFolder: () -> Void
     private let onSetupWireless: () -> Void
-    private let onCopyDevSenderConfig: () -> Void
 
     init(wirelessStatus: @escaping () -> String,
          onShowLast: @escaping () -> Void,
          onRevealFolder: @escaping () -> Void,
-         onSetupWireless: @escaping () -> Void,
-         onCopyDevSenderConfig: @escaping () -> Void) {
+         onSetupWireless: @escaping () -> Void) {
         self.wirelessStatus = wirelessStatus
         self.onShowLast = onShowLast
         self.onRevealFolder = onRevealFolder
         self.onSetupWireless = onSetupWireless
-        self.onCopyDevSenderConfig = onCopyDevSenderConfig
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
         if let button = statusItem.button {
@@ -52,10 +49,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         setup.target = self
         menu.addItem(setup)
 
-        let copyDevConfig = NSMenuItem(title: "Copy Dev Sender Config", action: #selector(copyDevSenderConfigAction), keyEquivalent: "")
-        copyDevConfig.target = self
-        menu.addItem(copyDevConfig)
-
         menu.addItem(.separator())
 
         let show = NSMenuItem(title: "Show Last Screenshot", action: #selector(showLastAction), keyEquivalent: "")
@@ -75,7 +68,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) { refresh() }
 
     @objc private func setupWirelessAction() { onSetupWireless() }
-    @objc private func copyDevSenderConfigAction() { onCopyDevSenderConfig() }
     @objc private func showLastAction() { onShowLast() }
     @objc private func revealAction() { onRevealFolder() }
     @objc private func quitAction() { NSApp.terminate(nil) }

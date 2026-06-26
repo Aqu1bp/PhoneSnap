@@ -2,7 +2,7 @@
 
 Drag real iPhone screenshots into your coding agent.
 
-PhoneSnap is a tiny Mac menu bar app for AI-assisted iOS development. Plug in your iPhone, use an embedded debug sender from the app you are building, or run the generated iOS Shortcut fallback over Wi-Fi, and a draggable screenshot thumbnail appears on your Mac so you can drop real-device UI context into Codex, Cursor, Claude, ChatGPT, Slack, or an issue.
+PhoneSnap is a tiny Mac menu bar app for AI-assisted iOS development. Plug in your iPhone, or run the generated iOS Shortcut fallback over Wi-Fi, and draggable iPhone screenshots appear on your Mac so you can drop real-device UI context into Codex, Cursor, Claude, ChatGPT, Slack, or an issue.
 
 The point is the feedback loop: screenshot real hardware, drag it into the agent, keep building.
 
@@ -11,11 +11,11 @@ The point is the feedback loop: screenshot real hardware, drag it into the agent
 PhoneSnap's primary universal path is still wired USB because it is the most reliable workflow.
 
 - Supported: iPhone connected to the Mac over USB, trusted by the Mac.
-- Supported: optional automatic wireless from debug senders embedded in the foreground app being built.
-- Supported: optional fallback/manual wireless setup using a locally generated, signed PhoneSnap Shortcut.
+- Supported: fallback/manual wireless batch setup using a locally generated, signed PhoneSnap Shortcut.
+- Deprecated/experimental: automatic wireless from debug senders embedded in the foreground app being built.
 - Not used: GitHub Gist rendezvous, third-party services, iCloud, or manual Shortcut URL/header/body entry.
 
-Automatic wireless dev senders use the same Mac receiver URL/token contract as the Shortcut path, but snapshot the app UI instead of reading Photos. See [docs/DEV_SENDERS.md](docs/DEV_SENDERS.md) and [docs/WIRELESS.md](docs/WIRELESS.md).
+The generated Shortcut fetches the recent screenshot batch from Photos and posts each image to the Mac receiver. Existing installed PhoneSnap Shortcuts should be reinstalled to get batch behavior. Dev senders remain in the repo as deprecated/experimental references. See [docs/DEV_SENDERS.md](docs/DEV_SENDERS.md) and [docs/WIRELESS.md](docs/WIRELESS.md).
 
 ## Requirements
 
@@ -23,7 +23,7 @@ Automatic wireless dev senders use the same Mac receiver URL/token contract as t
 - Swift 5.9+ / Xcode 15+ to build
 - iPhone or iPad that appears to macOS through ImageCaptureCore
 - USB or USB-C cable for wired mode
-- Same Wi-Fi/LAN for wireless dev sender or Shortcut mode
+- Same Wi-Fi/LAN for wireless Shortcut mode
 
 ## Quick Start
 
@@ -48,17 +48,7 @@ A small iPhone icon appears in the menu bar. The app is running.
 
 The app uses Apple's ImageCaptureCore framework. macOS exposes a trusted, plugged-in iPhone as a camera-class device; PhoneSnap watches for new camera-roll items after startup, filters likely screenshots, downloads them, saves them, copies them to the clipboard, and shows the thumbnail.
 
-### Automatic Wireless Dev Sender
-
-1. Open the PhoneSnap menu bar item.
-2. Choose **Copy Dev Sender Config** to copy the upload URL and token.
-3. Add a debug-only sender to the app you are building, such as `senders/apple-ios` or `senders/expo`.
-4. Run the app in the foreground on the phone.
-5. Take an iOS screenshot. The debug sender snapshots the app UI and posts it to PhoneSnap.
-
-Dev senders are foreground-app-only. They do not read Photos and should not store tokens. See [docs/DEV_SENDERS.md](docs/DEV_SENDERS.md).
-
-### Wireless Shortcut Fallback
+### Wireless Shortcut Batch Fallback
 
 1. Open the PhoneSnap menu bar item.
 2. Choose **Set Up Wireless Shortcut...**.
@@ -66,7 +56,13 @@ Dev senders are foreground-app-only. They do not read Photos and should not stor
 4. On the iPhone, open `PhoneSnap.shortcut` and add it in Shortcuts.
 5. Take a screenshot, then run the PhoneSnap Shortcut from Shortcuts, Action Button, Back Tap, Control Center, or the Home Screen.
 
-The Shortcut is generated locally by the Mac app. It sends the latest screenshot from Photos to `POST /api/v1/upload/<pairId>` with a persisted bearer token, so the user does not type the URL, method, headers, or body. This remains useful when USB is unavailable and the target app does not have an embedded dev sender.
+The Shortcut is generated locally by the Mac app. It asks Photos for the latest 10 screenshots and posts each image to `POST /api/v1/upload/<pairId>` with a persisted bearer token, so the user does not type the URL, method, headers, or body. The Mac groups arrivals from the Shortcut and opens a floating **Recent from iPhone** panel with draggable thumbnails. This remains useful when USB is unavailable.
+
+Existing installed PhoneSnap Shortcuts should be removed and reinstalled from the setup page to get batch behavior.
+
+### Experimental Dev Senders
+
+The `senders/` packages are deprecated as a main product path for now. They are kept as experimental references for foreground-app debug builds that post directly to the Mac upload endpoint. The menu no longer exposes a happy-path dev sender config action.
 
 ## Agent Workflow
 
@@ -75,7 +71,7 @@ The Shortcut is generated locally by the Mac app. It sends the latest screenshot
 - Drag PhoneSnap's thumbnail into the agent chat.
 - Ask for a fix with real visual context instead of describing layout by hand.
 
-## Thumbnail Behavior
+## Wired Thumbnail Behavior
 
 - Appears bottom-right of the screen containing the cursor.
 - Auto-copies the screenshot to the clipboard on arrival.
@@ -84,6 +80,13 @@ The Shortcut is generated locally by the Mac app. It sends the latest screenshot
 - Drag the image directly into agent apps, chat apps, issue trackers, or any file drop target.
 - Press ESC or click the close button to dismiss.
 - Auto-fades after 8 seconds; hovering resets the timer.
+
+## Wireless Batch Behavior
+
+- Wireless Shortcut uploads do not show the wired single thumbnail by default.
+- The Mac groups wireless images received within a short quiet window and opens a floating **Recent from iPhone** panel.
+- Each panel thumbnail can be dragged into agent apps and file drop targets.
+- The latest wireless upload is also written to the pasteboard for paste workflows.
 
 ## Where Screenshots Are Saved
 
@@ -122,17 +125,17 @@ iPhone over USB
     -> shows a floating NSPanel thumbnail
 
 iPhone over Wi-Fi
-  foreground app includes debug PhoneSnap sender
-    -> user takes an iOS screenshot while app is active
+  user runs generated PhoneSnap Shortcut
+    -> Shortcut reads latest 10 screenshots from Photos
+    -> repeats over the screenshots
+    -> POSTs each image to the Mac receiver with Authorization: Bearer <token>
+    -> Mac saves each PNG, updates pasteboard to the latest upload
+    -> Mac shows the Recent from iPhone batch panel
+
+iPhone over Wi-Fi experimental
+  foreground app includes deprecated debug PhoneSnap sender
     -> sender snapshots its active app UI
     -> POSTs raw PNG to the Mac receiver with Authorization: Bearer <token>
-    -> the same save/pasteboard/thumbnail pipeline runs
-
-iPhone over Wi-Fi fallback
-  user runs generated PhoneSnap Shortcut
-    -> Shortcut reads latest screenshot from Photos
-    -> POSTs it to the Mac receiver with Authorization: Bearer <token>
-    -> the same save/pasteboard/thumbnail pipeline runs
 ```
 
 ## Troubleshooting
@@ -152,11 +155,12 @@ iPhone over Wi-Fi fallback
 ## Known Limitations
 
 - Wired USB remains the primary supported path.
-- Automatic wireless requires a debug sender embedded in the foreground app being built.
 - Shortcut wireless is manual-triggered and remains a fallback.
+- Existing installed Shortcuts need reinstall to get the latest batch upload behavior.
+- Dev senders are deprecated/experimental and no longer exposed in the main menu.
 - Wireless requires the Mac app to be running and reachable from the iPhone on the local network.
 - Shortcut signing depends on `/usr/bin/shortcuts sign --mode anyone`.
-- One thumbnail at a time. A new screenshot dismisses the old thumbnail.
+- Wired mode shows one thumbnail at a time. A new wired screenshot dismisses the old wired thumbnail.
 - Screenshot detection uses dimensions/aspect-ratio heuristics to avoid importing normal camera photos.
 - No app sandbox and no notarization. First launch may require right-click -> Open or removing quarantine metadata.
 - No automated iPhone end-to-end test; full wired/wireless verification requires a real trusted iPhone.
@@ -178,6 +182,7 @@ PhoneSnap/
 │   ├── Pasteboard.swift           multi-type clipboard write
 │   ├── StatusItemController.swift menu bar item
 │   ├── WirelessReceiver.swift     local HTTP setup/upload receiver
+│   ├── WirelessBatchPresenter...   Recent from iPhone batch panel
 │   ├── WirelessSetupWindow...     setup QR/window UI
 │   ├── WirelessShortcut...        signed Shortcut generation
 │   ├── ThumbnailPresenter.swift   wires saved image to thumbnail window

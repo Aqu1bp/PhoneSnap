@@ -2,7 +2,7 @@
 
 ## Decision
 
-Use Apple's ImageCaptureCore framework to watch a trusted iPhone connected over USB as the primary workflow. Offer the generated wireless Shortcut as an optional fallback when the user accepts manual Shortcut setup and local-network dependency.
+Use Apple's ImageCaptureCore framework to watch a trusted iPhone connected over USB as the primary workflow. Offer the generated wireless Shortcut batch flow as an optional fallback when the user accepts manual Shortcut setup/execution and local-network dependency.
 
 ## Why
 
@@ -27,8 +27,8 @@ Optional wireless flow:
 1. Launch PhoneSnap on Mac.
 2. Choose **Set Up Wireless Shortcut...**.
 3. Add the generated `PhoneSnap.shortcut` on the iPhone.
-4. Take an iPhone screenshot and run the Shortcut.
-5. The same floating thumbnail appears on Mac.
+4. Take one or more iPhone screenshots and run the Shortcut.
+5. PhoneSnap opens **Recent from iPhone** with the recent screenshot batch as draggable thumbnails.
 
 ## Rejected / Removed
 

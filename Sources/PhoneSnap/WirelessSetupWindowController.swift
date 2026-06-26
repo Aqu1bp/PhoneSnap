@@ -69,7 +69,7 @@ final class WirelessSetupWindowController {
         root.addSubview(title)
 
         let subtitle = NSTextField(wrappingLabelWithString:
-            "Scan this with your iPhone camera, then open and add the PhoneSnap Shortcut. iOS may ask for Photos and local-network permission on first run."
+            "Scan this with your iPhone camera, then open and add the PhoneSnap Shortcut. It sends recent screenshots to this Mac when you run it."
         )
         subtitle.font = NSFont.systemFont(ofSize: 13)
         subtitle.alignment = .center
@@ -130,7 +130,7 @@ final class WirelessSetupWindowController {
         root.addSubview(buttonRow)
 
         let hint = NSTextField(wrappingLabelWithString:
-            "Wired USB capture remains available while this receiver runs. After setup, run the PhoneSnap Shortcut from Shortcuts, Action Button, Back Tap, Control Center, or the Home Screen."
+            "Wired USB capture remains available while this receiver runs. After setup, take screenshots, then run the PhoneSnap Shortcut from Shortcuts, Action Button, Back Tap, Control Center, or the Home Screen."
         )
         hint.font = NSFont.systemFont(ofSize: 12)
         hint.alignment = .center

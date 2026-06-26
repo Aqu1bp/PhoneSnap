@@ -29,13 +29,13 @@ Use ImageCaptureCore with a trusted iPhone connected by USB as the primary path:
 3. New camera-roll items arrive through delegate callbacks.
 4. The app filters likely screenshots, downloads them, saves them, copies them to the clipboard, and presents the floating thumbnail.
 
-Optional wireless path:
+Optional wireless batch path:
 
 1. PhoneSnap starts a local HTTP receiver.
 2. The setup window shows a normal HTTP setup URL and QR code.
 3. The iPhone opens a signed generated Shortcut.
-4. Running the Shortcut uploads the latest screenshot to the Mac with a persisted bearer token.
-5. The same save, pasteboard, and thumbnail pipeline runs.
+4. Running the Shortcut uploads the latest 10 screenshots to the Mac, one image per request, with a persisted bearer token.
+5. PhoneSnap saves each image, updates the pasteboard to the latest upload, and opens the **Recent from iPhone** batch panel.
 
 ## Notes
 
@@ -43,4 +43,4 @@ The probe targets remain useful for local investigation:
 
 - `ICProbe` checks whether ImageCaptureCore can see the plugged-in iPhone.
 - `UsbmuxdProbe` inspects Apple's usbmuxd device list. It is research-only and does not enable a supported wireless path.
-- `WIRELESS.md` records the supported local Shortcut receiver/setup flow and its remaining limitations.
+- `WIRELESS.md` records the supported local Shortcut batch flow and its remaining limitations.

@@ -31,14 +31,20 @@ enum WirelessShortcutGenerator {
     static func makeSigned(uploadURL: String, token: String, shortcutName: String = "PhoneSnap") throws -> Data {
         let waitUUID = UUID().uuidString
         let screenshotUUID = UUID().uuidString
+        let repeatGroupUUID = UUID().uuidString
+        let repeatStartUUID = UUID().uuidString
         let uploadUUID = UUID().uuidString
+        let repeatEndUUID = UUID().uuidString
         let xml = template
             .replacingOccurrences(of: "$$SHORTCUT_NAME$$", with: xmlEscape(shortcutName))
             .replacingOccurrences(of: "$$UPLOAD_URL$$", with: xmlEscape(uploadURL))
             .replacingOccurrences(of: "$$TOKEN$$", with: xmlEscape("Bearer \(token)"))
             .replacingOccurrences(of: "$$WAIT_UUID$$", with: waitUUID)
             .replacingOccurrences(of: "$$SCREENSHOT_UUID$$", with: screenshotUUID)
+            .replacingOccurrences(of: "$$REPEAT_GROUP_UUID$$", with: repeatGroupUUID)
+            .replacingOccurrences(of: "$$REPEAT_START_UUID$$", with: repeatStartUUID)
             .replacingOccurrences(of: "$$UPLOAD_UUID$$", with: uploadUUID)
+            .replacingOccurrences(of: "$$REPEAT_END_UUID$$", with: repeatEndUUID)
 
         guard let xmlData = xml.data(using: .utf8) else {
             throw GenerateError.templateEncodingFailed
@@ -180,7 +186,20 @@ enum WirelessShortcutGenerator {
                     <key>UUID</key>
                     <string>$$SCREENSHOT_UUID$$</string>
                     <key>WFGetLatestPhotoCount</key>
-                    <integer>1</integer>
+                    <integer>10</integer>
+                </dict>
+            </dict>
+            <dict>
+                <key>WFWorkflowActionIdentifier</key>
+                <string>is.workflow.actions.repeat.each</string>
+                <key>WFWorkflowActionParameters</key>
+                <dict>
+                    <key>GroupingIdentifier</key>
+                    <string>$$REPEAT_GROUP_UUID$$</string>
+                    <key>UUID</key>
+                    <string>$$REPEAT_START_UUID$$</string>
+                    <key>WFControlFlowMode</key>
+                    <integer>0</integer>
                 </dict>
             </dict>
             <dict>
@@ -217,12 +236,10 @@ enum WirelessShortcutGenerator {
                                         <dict>
                                             <key>Value</key>
                                             <dict>
-                                                <key>OutputName</key>
-                                                <string>Latest Screenshots</string>
-                                                <key>OutputUUID</key>
-                                                <string>$$SCREENSHOT_UUID$$</string>
                                                 <key>Type</key>
-                                                <string>ActionOutput</string>
+                                                <string>Variable</string>
+                                                <key>VariableName</key>
+                                                <string>Repeat Item</string>
                                             </dict>
                                             <key>WFSerializationType</key>
                                             <string>WFTextTokenAttachment</string>
@@ -279,9 +296,21 @@ enum WirelessShortcutGenerator {
                     <string>$$UPLOAD_URL$$</string>
                 </dict>
             </dict>
+            <dict>
+                <key>WFWorkflowActionIdentifier</key>
+                <string>is.workflow.actions.repeat.each</string>
+                <key>WFWorkflowActionParameters</key>
+                <dict>
+                    <key>GroupingIdentifier</key>
+                    <string>$$REPEAT_GROUP_UUID$$</string>
+                    <key>UUID</key>
+                    <string>$$REPEAT_END_UUID$$</string>
+                    <key>WFControlFlowMode</key>
+                    <integer>2</integer>
+                </dict>
+            </dict>
         </array>
     </dict>
     </plist>
     """
 }
-

@@ -1,12 +1,12 @@
 # Dev Senders
 
-PhoneSnap has three sender paths. They all feed the existing Mac receiver and thumbnail pipeline.
+Dev senders are deprecated/experimental for now. The product path is USB automatic first and Wireless Shortcut Batch fallback second. The sender packages remain in the repo as references, but they are not exposed as a main setup flow.
 
 ## Direction
 
 - USB remains the universal automatic mode. A trusted iPhone connected to the Mac is still the primary path because it works for any app on the device without phone-side code.
-- Shortcut remains the fallback/manual wireless mode. It is useful when USB is unavailable, but the user must install and run the generated Shortcut.
-- Automatic wireless is foreground-app-only. It comes from a debug sender embedded in the app being built, so it can react while that app is active.
+- Shortcut is the fallback/manual wireless mode. It is useful when USB is unavailable, but the user must install and run the generated Shortcut. The current Shortcut sends the latest 10 screenshots and the Mac shows **Recent from iPhone**.
+- Automatic wireless dev senders are foreground-app-only experiments. They come from debug code embedded in the app being built, so they can react while that app is active.
 - All wireless senders use the existing Mac receiver contract:
 
 ```text
@@ -15,7 +15,7 @@ Authorization: Bearer <token>
 Content-Type: image/png or image/jpeg
 ```
 
-Raw PNG/JPEG bodies and multipart image uploads are accepted by the Mac receiver. New senders should prefer raw PNG unless their platform makes multipart simpler.
+Raw PNG/JPEG bodies and multipart image uploads are accepted by the Mac receiver. Experimental senders should prefer raw PNG unless their platform makes multipart simpler.
 
 ## Snapshot Source
 
@@ -31,7 +31,7 @@ Dev senders must be debug-only:
 
 - Do not start in release builds.
 - Do not store the PhoneSnap token in the package or app bundle.
-- Use **Copy Dev Sender Config** in the PhoneSnap Mac menu, then pass `uploadURL` and `token` from local debug configuration, developer settings, or a temporary launch argument.
+- The PhoneSnap menu no longer includes **Copy Dev Sender Config**. If experimenting, obtain the upload URL and token from local development configuration only.
 - Do not add Bonjour discovery or network scanning unless a future feature explicitly designs that pairing flow.
 
 ## iOS App Configuration
@@ -59,3 +59,5 @@ Example:
 - `senders/apple-ios`: Swift Package reference implementation for native UIKit apps.
 - `senders/expo`: minimal Expo/React Native prototype using a root view ref.
 - `senders/react-native` and `senders/flutter`: API stubs for future implementations.
+
+These packages are not currently maintained as a happy-path product feature. Prefer the generated Wireless Shortcut Batch fallback unless explicitly experimenting with foreground-app debug capture.

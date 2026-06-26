@@ -1,6 +1,6 @@
 # iPhone setup
 
-PhoneSnap supports wired USB capture as the primary path and an optional wireless Shortcut setup path.
+PhoneSnap supports wired USB capture as the primary path and an optional wireless Shortcut batch fallback.
 
 ## Wired Setup
 
@@ -28,7 +28,9 @@ The screenshot should appear as a floating thumbnail on the Mac.
 6. Tap Add Shortcut in Shortcuts.
 7. Take a screenshot and run the PhoneSnap Shortcut.
 
-iOS may ask for Photos and local-network permission the first time the Shortcut runs. The Mac app must stay running and reachable on the same LAN.
+The Shortcut fetches the latest 10 screenshots and posts them one by one to the Mac. PhoneSnap groups the uploads and opens the **Recent from iPhone** panel with draggable thumbnails instead of the wired single thumbnail.
+
+iOS may ask for Photos and local-network permission the first time the Shortcut runs. The Mac app must stay running and reachable on the same LAN. Existing installed PhoneSnap Shortcuts should be removed and reinstalled from the setup page to get batch behavior.
 
 ## If Nothing Appears
 

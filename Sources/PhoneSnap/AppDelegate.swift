@@ -3,6 +3,7 @@ import AppKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItemController: StatusItemController!
     private var presenter: ThumbnailPresenter!
+    private var wirelessBatchPresenter: WirelessBatchPresenter!
     private var cameraBridge: CameraBridge!
     private var wirelessReceiver: WirelessReceiver!
     private var wirelessSetupWindow: WirelessSetupWindowController!
@@ -15,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         presenter = ThumbnailPresenter()
+        wirelessBatchPresenter = WirelessBatchPresenter()
         wirelessSetupWindow = WirelessSetupWindowController(infoProvider: { [weak self] in
             self?.wirelessSetupInfo() ?? WirelessSetupInfo(
                 pairID: "unavailable",
@@ -30,8 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             },
             onShowLast: { [weak self] in self?.presenter.showLast() },
             onRevealFolder: { [weak self] in self?.store.revealInFinder() },
-            onSetupWireless: { [weak self] in self?.wirelessSetupWindow.show() },
-            onCopyDevSenderConfig: { [weak self] in self?.copyDevSenderConfig() }
+            onSetupWireless: { [weak self] in self?.wirelessSetupWindow.show() }
         )
 
         wirelessReceiver = WirelessReceiver(
@@ -39,7 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             pairing: wirelessPairing,
             uploadHandler: { [weak self] data in
                 guard let self else { return false }
-                return self.deliver(data: data, source: "Wireless Shortcut")
+                return self.deliverWireless(data: data)
             },
             stateHandler: { [weak self] state in
                 DispatchQueue.main.async {
@@ -84,22 +85,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
-    private func copyDevSenderConfig() {
-        let info = wirelessSetupInfo()
-        let uploadURL = "http://\(info.hostName):\(wirelessPort)/api/v1/upload/\(wirelessPairing.pairID)"
-        var lines = [
-            "# PhoneSnap dev sender config. Do not commit this token.",
-            "PHONESNAP_UPLOAD_URL=\(uploadURL)",
-            "PHONESNAP_TOKEN=\(wirelessPairing.token)"
-        ]
-        if let lanIP = info.lanIP {
-            lines.append("PHONESNAP_UPLOAD_URL_FALLBACK=http://\(lanIP):\(wirelessPort)/api/v1/upload/\(wirelessPairing.pairID)")
-        }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
-        Log.info("Copied dev sender config to clipboard")
-    }
-
     @discardableResult
     private func deliver(data: Data, source: String) -> Bool {
         do {
@@ -112,6 +97,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return true
         } catch {
             Log.error("Save failed (\(source)): \(error)")
+            return false
+        }
+    }
+
+    @discardableResult
+    private func deliverWireless(data: Data) -> Bool {
+        do {
+            let url = try store.save(data: data)
+            Log.info("Delivered via Wireless Shortcut Batch: \(url.lastPathComponent)")
+            DispatchQueue.main.async { [weak self] in
+                self?.wirelessBatchPresenter.enqueue(fileURL: url)
+                Pasteboard.write(fileURL: url)
+            }
+            return true
+        } catch {
+            Log.error("Save failed (Wireless Shortcut Batch): \(error)")
             return false
         }
     }

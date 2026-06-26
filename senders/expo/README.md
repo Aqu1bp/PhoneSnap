@@ -2,6 +2,8 @@
 
 Minimal debug sender prototype for Expo apps.
 
+Deprecated/experimental: dev senders are not the current PhoneSnap happy path. Prefer wired USB automatic mode or the generated Wireless Shortcut Batch fallback unless you are explicitly experimenting with foreground-app debug capture.
+
 It listens for screenshots with `expo-screen-capture`, snapshots your app root view with `react-native-view-shot`, and uploads a multipart PNG file to the existing PhoneSnap Mac receiver.
 
 ## Install
