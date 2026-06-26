@@ -1,6 +1,6 @@
 # ARCHITECTURE - PhoneSnap
 
-PhoneSnap is a single-process macOS menu bar app. It watches a trusted USB-connected iPhone through ImageCaptureCore, downloads new screenshot-like camera-roll items, saves them as PNG files, copies them to the pasteboard, and presents a floating thumbnail.
+PhoneSnap is a single-process macOS menu bar app. Its primary path watches a trusted USB-connected iPhone through ImageCaptureCore, downloads new screenshot-like camera-roll items, saves them as PNG files, copies them to the pasteboard, and presents a floating thumbnail. It also runs an optional local HTTP receiver for the generated wireless Shortcut setup/upload path.
 
 ## Process Model
 
@@ -10,13 +10,15 @@ NSApplication
 ├── StatusItemController
 ├── CameraBridge
 │   └── ImageCaptureCore device/session callbacks
+├── WirelessReceiver
+│   └── local HTTP setup, Shortcut download, and upload routes
+├── WirelessSetupWindowController
+│   └── setup URL, QR code, copy/open actions
 ├── ImageStore
 └── ThumbnailPresenter
     └── ThumbnailWindowController
         └── ThumbnailView
 ```
-
-There is no LAN HTTP listener in the supported app path.
 
 ## CameraBridge
 
@@ -30,6 +32,22 @@ To avoid importing the existing camera roll, it records a startup threshold and 
 
 Matching files are downloaded to a temporary path, read into memory, removed from temp, and delivered to the app pipeline.
 
+## WirelessReceiver
+
+`WirelessReceiver` starts a local Network.framework TCP listener on `PHONESNAP_WIRELESS_PORT` or port `8472`. Bind failures are logged and shown in the menu/setup window, but wired mode still starts.
+
+Supported routes:
+
+- `GET /pair/<pairId>`: HTML setup page for the iPhone.
+- `GET /pair/<pairId>/PhoneSnap.shortcut`: generated signed Shortcut file.
+- `POST /api/v1/upload/<pairId>`: screenshot upload endpoint.
+
+The receiver caps request bodies at 32 MB, accepts raw image bodies and multipart image/file bodies, and requires `Authorization: Bearer <token>` for uploads. A token query parameter is accepted as a compatibility fallback.
+
+`WirelessPairing` persists a short random pair ID and high-entropy bearer token in `UserDefaults`, so installed Shortcuts keep working across app restarts.
+
+`WirelessShortcutGenerator` builds the Shortcut plist with the upload URL/token baked in and signs it with `/usr/bin/shortcuts sign --mode anyone`. Signing errors are served as clear HTTP `500` responses.
+
 ## Image Pipeline
 
 1. `AppDelegate.deliver(data:source:)`
@@ -42,6 +60,8 @@ Matching files are downloaded to a temporary path, read into memory, removed fro
 `StatusItemController` creates the menu bar item. The menu exposes:
 
 - current mode
+- wireless receiver status
+- set up wireless Shortcut
 - show last screenshot
 - reveal save folder
 - quit
@@ -53,7 +73,8 @@ Matching files are downloaded to a temporary path, read into memory, removed fro
 ## Configuration
 
 - `PHONESNAP_DIR`: override the save folder.
+- `PHONESNAP_WIRELESS_PORT`: override the wireless receiver port.
 
-## Removed Wireless Components
+## Wireless Scope
 
-The previous LAN HTTP/Shortcut/QR/Gist design is intentionally not part of the runtime anymore. It was removed because only the wired path proved reliable enough for the current app.
+The old GitHub/Gist rendezvous and direct `shortcuts://import-shortcut` QR flow are not part of the runtime. The current wireless setup uses a normal local HTTP setup page that serves a signed `PhoneSnap.shortcut`.

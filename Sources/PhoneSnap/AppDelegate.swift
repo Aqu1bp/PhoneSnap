@@ -4,13 +4,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItemController: StatusItemController!
     private var presenter: ThumbnailPresenter!
     private var cameraBridge: CameraBridge!
+    private var wirelessReceiver: WirelessReceiver!
+    private var wirelessSetupWindow: WirelessSetupWindowController!
     private let store = ImageStore()
+    private let wirelessPairing = WirelessPairing.load()
+    private let wirelessPort: UInt16 = {
+        ProcessInfo.processInfo.environment["PHONESNAP_WIRELESS_PORT"].flatMap(UInt16.init) ?? 8472
+    }()
+    private var wirelessState: WirelessReceiver.State = .stopped
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         presenter = ThumbnailPresenter()
+        wirelessSetupWindow = WirelessSetupWindowController(infoProvider: { [weak self] in
+            self?.wirelessSetupInfo() ?? WirelessSetupInfo(
+                pairID: "unavailable",
+                port: 0,
+                receiverState: .failed("app unavailable"),
+                hostName: "localhost",
+                lanIP: nil
+            )
+        })
         statusItemController = StatusItemController(
+            wirelessStatus: { [weak self] in
+                self?.wirelessState.menuTitle ?? WirelessReceiver.State.stopped.menuTitle
+            },
             onShowLast: { [weak self] in self?.presenter.showLast() },
-            onRevealFolder: { [weak self] in self?.store.revealInFinder() }
+            onRevealFolder: { [weak self] in self?.store.revealInFinder() },
+            onSetupWireless: { [weak self] in self?.wirelessSetupWindow.show() }
+        )
+
+        wirelessReceiver = WirelessReceiver(
+            port: wirelessPort,
+            pairing: wirelessPairing,
+            uploadHandler: { [weak self] data in
+                guard let self else { return false }
+                return self.deliver(data: data, source: "Wireless Shortcut")
+            },
+            stateHandler: { [weak self] state in
+                DispatchQueue.main.async {
+                    self?.wirelessState = state
+                    self?.statusItemController.refresh()
+                    self?.wirelessSetupWindow.refreshIfVisible()
+                }
+            }
         )
 
         // ImageCaptureCore watches trusted USB-connected iPhones and emits
@@ -20,12 +56,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             _ = self.deliver(data: data, source: "Cable(\(name))")
         }
 
+        do {
+            try wirelessReceiver.start()
+        } catch {
+            wirelessState = .failed(error.localizedDescription)
+            Log.error("Wireless receiver could not start on port \(wirelessPort): \(error)")
+            statusItemController.refresh()
+        }
+
         Log.info("Starting wired iPhone screenshot watcher")
         cameraBridge.start()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        wirelessReceiver?.stop()
         cameraBridge?.stop()
+    }
+
+    private func wirelessSetupInfo() -> WirelessSetupInfo {
+        WirelessSetupInfo(
+            pairID: wirelessPairing.pairID,
+            port: wirelessPort,
+            receiverState: wirelessState,
+            hostName: LANAddress.bonjourHostName(),
+            lanIP: LANAddress.currentIPv4()
+        )
     }
 
     @discardableResult

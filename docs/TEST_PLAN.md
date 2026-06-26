@@ -35,8 +35,42 @@ swift run ICProbe
 
 Expected: a trusted plugged-in iPhone appears as a camera-class device.
 
-## Out of Scope
+## Wireless Receiver Smoke Test
 
-There is no HTTP probe anymore because the LAN receiver was removed. Wireless Shortcut and QR flows are not part of the supported test matrix.
+Run PhoneSnap from source on a temporary port and save folder:
 
-Wireless research is tracked in `docs/WIRELESS.md`; do not add it to the supported test matrix until a prototype passes real-device testing.
+```bash
+PHONESNAP_WIRELESS_PORT=18472 PHONESNAP_DIR=/tmp/phonesnap-test swift run PhoneSnap
+```
+
+In another terminal:
+
+```bash
+curl -i http://127.0.0.1:18472/pair/<pairId>
+curl -i http://127.0.0.1:18472/pair/<pairId>/PhoneSnap.shortcut
+curl -i -X POST \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: image/png" \
+  --data-binary @sample.png \
+  http://127.0.0.1:18472/api/v1/upload/<pairId>
+```
+
+Expected:
+
+- setup page returns `200 OK` HTML
+- Shortcut download returns `200 OK` with `PhoneSnap.shortcut`, or a clear signing error if `/usr/bin/shortcuts sign` fails
+- upload returns `{"ok":true,...}`
+- a PNG is saved to `PHONESNAP_DIR`
+- missing/incorrect token returns `401 Unauthorized`
+
+## Wireless iPhone End-to-End
+
+1. Launch PhoneSnap.
+2. Choose **Set Up Wireless Shortcut...**.
+3. Scan the QR code with the iPhone.
+4. Open/add `PhoneSnap.shortcut`.
+5. Take a screenshot.
+6. Run the PhoneSnap Shortcut.
+7. Confirm the Mac thumbnail appears, the file is saved, and the pasteboard is updated.
+
+First run may require iOS Photos and local-network permission.
