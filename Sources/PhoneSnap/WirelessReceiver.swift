@@ -51,14 +51,10 @@ final class WirelessReceiver {
         let parameters = NWParameters.tcp
         parameters.allowLocalEndpointReuse = true
         let listener = try NWListener(using: parameters, on: nwPort)
-        listener.service = NWListener.Service(
-            name: "PhoneSnap",
-            type: "_phonesnap._tcp",
-            txtRecord: NWTXTRecord([
-                "pair": pairing.pairID,
-                "path": "/pair/\(pairing.pairID)"
-            ])
-        )
+        // Deliberately NOT advertised over Bonjour: broadcasting the pair ID
+        // would let any LAN peer fetch the setup page and extract the bearer
+        // token from the generated Shortcut. The QR code / setup URL is the
+        // only distribution channel for the pair ID.
         self.listener = listener
         listener.newConnectionHandler = { [weak self] connection in
             self?.accept(connection)
@@ -372,21 +368,28 @@ private final class WirelessHTTPSession {
     }
 
     private func isAuthorized() -> Bool {
-        if let authorization = headers["authorization"],
-           authorization == "Bearer \(pairing.token)" {
-            return true
+        guard let authorization = headers["authorization"] else { return false }
+        return Self.constantTimeEquals(authorization, "Bearer \(pairing.token)")
+    }
+
+    /// Compares the full strings even on early mismatch so response timing
+    /// does not leak how many leading characters of the token were correct.
+    private static func constantTimeEquals(_ a: String, _ b: String) -> Bool {
+        let aBytes = Array(a.utf8)
+        let bBytes = Array(b.utf8)
+        guard aBytes.count == bBytes.count else { return false }
+        var diff: UInt8 = 0
+        for i in 0..<aBytes.count {
+            diff |= aBytes[i] ^ bBytes[i]
         }
-        if let queryToken = queryItems()["token"],
-           queryToken == pairing.token {
-            return true
-        }
-        return false
+        return diff == 0
     }
 
     private func setupHTML() -> String {
-        let shortcutPath = "./PhoneSnap.shortcut"
-        let escapedSetupURL = Self.htmlEscape("\(requestBaseURL())/pair/\(pairing.pairID)")
-        let escapedShortcutPath = Self.htmlEscape(shortcutPath)
+        let setupURL = "\(requestBaseURL())/pair/\(pairing.pairID)"
+        let shortcutURL = "\(setupURL)/PhoneSnap.shortcut"
+        let escapedSetupURL = Self.htmlEscape(setupURL)
+        let escapedShortcutURL = Self.htmlEscape(shortcutURL)
         return """
         <!doctype html>
         <html lang="en">
@@ -408,7 +411,7 @@ private final class WirelessHTTPSession {
           <main>
             <h1>Set Up PhoneSnap</h1>
             <p>Open the signed PhoneSnap Shortcut on this iPhone, then tap Add Shortcut in Shortcuts. It sends the recent screenshot batch to this Mac.</p>
-            <a class="button" href="\(escapedShortcutPath)">Open PhoneSnap Shortcut</a>
+            <a class="button" href="\(escapedShortcutURL)">Open PhoneSnap Shortcut</a>
             <p class="note">iOS will still ask you to add the Shortcut. The first run may also ask for Photos or local-network permission.</p>
             <p class="note">Setup page: <code>\(escapedSetupURL)</code></p>
           </main>
@@ -473,21 +476,6 @@ private final class WirelessHTTPSession {
         if didFinish { return }
         didFinish = true
         onFinished?()
-    }
-
-    private func queryItems() -> [String: String] {
-        guard let question = target.firstIndex(of: "?") else { return [:] }
-        let query = target[target.index(after: question)...]
-        var values: [String: String] = [:]
-        for pair in query.split(separator: "&") {
-            let pieces = pair.split(separator: "=", maxSplits: 1)
-            let key = String(pieces[0]).removingPercentEncoding ?? String(pieces[0])
-            let value = pieces.count > 1
-                ? (String(pieces[1]).removingPercentEncoding ?? String(pieces[1]))
-                : ""
-            values[key] = value
-        }
-        return values
     }
 
     private static func pathOnly(from target: String) -> String {

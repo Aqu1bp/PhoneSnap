@@ -30,7 +30,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleDisplayName</key>
   <string>PhoneSnap</string>
   <key>CFBundleIdentifier</key>
-  <string>local.aquib.phonesnap</string>
+  <string>dev.phonesnap.PhoneSnap</string>
   <key>CFBundleVersion</key>
   <string>1</string>
   <key>CFBundleShortVersionString</key>

@@ -29,7 +29,7 @@ The generated Shortcut fetches the recent screenshot batch from Photos and posts
 
 ```bash
 git clone <this repo>
-cd PhoneSnap
+cd <repo folder>
 ./scripts/build-app.sh
 open ./PhoneSnap.app
 ```
@@ -196,6 +196,14 @@ PhoneSnap/
 └── README.md
 ```
 
+## Security
+
+Wireless mode runs a plain-HTTP receiver on your LAN, protected by a random pair ID and bearer token. Read [SECURITY.md](SECURITY.md) for the threat model before using it on shared networks. Wired mode opens no network listeners.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## License
 
-Personal project, no license declared.
+[MIT](LICENSE)

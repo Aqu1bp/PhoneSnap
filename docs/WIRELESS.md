@@ -56,7 +56,7 @@ Uploads should authenticate with:
 Authorization: Bearer <token>
 ```
 
-The receiver also accepts `?token=<token>` as a fallback for sender compatibility, but the generated Shortcut uses the Authorization header.
+The `Authorization` header is the only accepted credential. Query-string tokens are rejected so tokens cannot leak into URL logs or browser history. The listener is intentionally not advertised over Bonjour: the pair ID acts as a capability for downloading the token-embedding Shortcut, so it is distributed only through the QR code / setup URL. See [SECURITY.md](../SECURITY.md) for the full threat model.
 
 The upload contract is intentionally unchanged for the generated Shortcut and deprecated dev sender experiments:
 
