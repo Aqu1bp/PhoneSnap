@@ -61,14 +61,13 @@ final class ThumbnailView: NSView, NSDraggingSource {
         buttonStack.alignment = .centerY
         buttonStack.distribution = .fillEqually
         buttonStack.translatesAutoresizingMaskIntoConstraints = false
+        // No "open" button — clicking the image itself opens it in Preview.
         let copy = makeIconButton(symbol: "doc.on.clipboard", tooltip: "Copy (⌘C)", action: #selector(copyPressed))
         let save = makeIconButton(symbol: "square.and.arrow.down", tooltip: "Save to Downloads (⌘S)", action: #selector(savePressed))
-        let open = makeIconButton(symbol: "arrow.up.forward.app", tooltip: "Open in Preview", action: #selector(openPressed))
         let trash = makeIconButton(symbol: "trash", tooltip: "Delete screenshot (⌘⌫)", action: #selector(deletePressed))
         trash.contentTintColor = NSColor.systemRed.blended(withFraction: 0.35, of: .white) ?? .systemRed
         buttonStack.addArrangedSubview(copy)
         buttonStack.addArrangedSubview(save)
-        buttonStack.addArrangedSubview(open)
         buttonStack.addArrangedSubview(trash)
         bar.addSubview(buttonStack)
 
@@ -258,7 +257,6 @@ final class ThumbnailView: NSView, NSDraggingSource {
     @objc private func closePressed() { onClose?() }
     @objc private func copyPressed() { onCopy?() }
     @objc private func savePressed() { onSave?() }
-    @objc private func openPressed() { onOpen?() }
     @objc private func deletePressed() { onDelete?() }
 
     func flashConfirmation(_ text: String) {

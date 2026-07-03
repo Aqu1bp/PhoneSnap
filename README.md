@@ -75,7 +75,7 @@ The `senders/` packages are deprecated as a main product path for now. They are 
 
 - Appears bottom-right of the screen containing the cursor.
 - Auto-copies the screenshot to the clipboard on arrival.
-- Shows action buttons for copy (⌘C), save to Downloads (⌘S), open in Preview, and delete to Trash (⌘⌫).
+- Shows action buttons for copy (⌘C), save to Downloads (⌘S), and delete to Trash (⌘⌫). Click the image to open it in Preview.
 - Click the image to open it in Preview.
 - Drag the image directly into agent apps, chat apps, issue trackers, or any file drop target.
 - Press ESC or click the close button to dismiss.

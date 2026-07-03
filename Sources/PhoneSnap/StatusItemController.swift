@@ -30,12 +30,19 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     /// Swap the menu bar icon to reflect whether a trusted iPhone is attached.
     func setConnected(_ connected: Bool) {
         guard let button = statusItem.button else { return }
-        let symbolName = connected ? "iphone.gen3.badge.checkmark" : "iphone.gen3"
-        if let symbol = NSImage(systemSymbolName: symbolName, accessibilityDescription: "PhoneSnap") {
+        let candidates = connected
+            ? ["iphone.gen3.badge.checkmark", "iphone.badge.checkmark", "iphone"]
+            : ["iphone.gen3", "iphone"]
+        let symbol = candidates.lazy
+            .compactMap { NSImage(systemSymbolName: $0, accessibilityDescription: "PhoneSnap") }
+            .first
+        if let symbol {
             symbol.isTemplate = true
             button.image = symbol
+            button.title = ""
         } else {
-            button.title = "PS"
+            button.image = nil
+            button.title = "📱"
         }
         button.toolTip = connected ? "PhoneSnap — iPhone connected" : "PhoneSnap — no iPhone connected"
     }
