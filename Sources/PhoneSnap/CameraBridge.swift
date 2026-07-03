@@ -31,9 +31,12 @@ final class CameraBridge: NSObject, ICCameraDeviceDownloadDelegate {
     private let browser = ICDeviceBrowser()
     private let onNewImage: NewImageHandler
     private var devices: [ICCameraDevice] = []
-    /// IDs we've already considered (so we don't even re-evaluate them on
-    /// repeated didAdd / didRenameItems calls).
-    private var processedItemIDs: Set<ObjectIdentifier> = []
+    /// Stable keys (name + creation date) of items we've already considered.
+    /// ImageCaptureCore re-announces the catalog with *new* item objects every
+    /// time the session reopens (e.g. after the iPhone locks and unlocks), so
+    /// object identity is not a usable dedup key — the same screenshot would
+    /// be re-delivered on every reconnect.
+    private var processedItemKeys: Set<String> = []
     /// Only items whose `creationDate` is **after** this threshold qualify as
     /// "new screenshots". Set when CameraBridge starts. This decouples our
     /// "new vs old" test from ImageCaptureCore's delivery order — on modern
@@ -68,7 +71,7 @@ final class CameraBridge: NSObject, ICCameraDeviceDownloadDelegate {
         browser.stop()
         for d in devices { d.requestCloseSession() }
         devices.removeAll()
-        processedItemIDs.removeAll()
+        processedItemKeys.removeAll()
         notifyDevicesChanged()
     }
 
@@ -205,10 +208,6 @@ extension CameraBridge: ICCameraDeviceDelegate {
 
     func cameraDevice(_ camera: ICCameraDevice, didAdd items: [ICCameraItem]) {
         for item in items {
-            let id = ObjectIdentifier(item)
-            if processedItemIDs.contains(id) { continue }
-            processedItemIDs.insert(id)
-
             guard let file = item as? ICCameraFile else { continue }
 
             // Filter by creation date: anything from before the app started is
@@ -219,6 +218,10 @@ extension CameraBridge: ICCameraDeviceDelegate {
             guard created > newItemThreshold else {
                 continue
             }
+
+            let key = Self.itemKey(file)
+            if processedItemKeys.contains(key) { continue }
+            processedItemKeys.insert(key)
 
             guard looksLikeScreenshot(file) else {
                 Log.info("CameraBridge: skipping non-screenshot \(file.name ?? "?") \(file.width)x\(file.height)")
@@ -231,8 +234,15 @@ extension CameraBridge: ICCameraDeviceDelegate {
 
     func cameraDevice(_ camera: ICCameraDevice, didRemove items: [ICCameraItem]) {
         for item in items {
-            processedItemIDs.remove(ObjectIdentifier(item))
+            if let file = item as? ICCameraFile {
+                processedItemKeys.remove(Self.itemKey(file))
+            }
         }
+    }
+
+    private static func itemKey(_ file: ICCameraFile) -> String {
+        let created = file.creationDate?.timeIntervalSince1970 ?? 0
+        return "\(file.name ?? "?")|\(created)"
     }
 
     func cameraDevice(_ camera: ICCameraDevice, didRenameItems items: [ICCameraItem]) {}
