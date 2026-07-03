@@ -27,6 +27,22 @@ final class ImageStore {
         return url
     }
 
+    /// Newest saved screenshot in the folder, if any.
+    func latestFile() -> URL? {
+        let contents = (try? FileManager.default.contentsOfDirectory(
+            at: folder,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []
+        return contents
+            .filter { $0.pathExtension.lowercased() == "png" }
+            .max { a, b in
+                let da = (try? a.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                let db = (try? b.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                return da < db
+            }
+    }
+
     func revealInFinder() {
         NSWorkspace.shared.activateFileViewerSelecting([folder])
     }

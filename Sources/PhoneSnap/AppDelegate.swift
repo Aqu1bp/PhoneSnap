@@ -37,7 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             wirelessStatus: { [weak self] in
                 self?.wirelessState.menuTitle ?? WirelessReceiver.State.stopped.menuTitle
             },
-            onShowLast: { [weak self] in self?.presenter.showLast() },
+            onShowLast: { [weak self] in self?.showLastScreenshot() },
             onRevealFolder: { [weak self] in self?.store.revealInFinder() },
             onSetupWireless: { [weak self] in self?.wirelessSetupWindow.show() }
         )
@@ -84,6 +84,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         wirelessReceiver?.stop()
         cameraBridge?.stop()
+    }
+
+    /// Prefer the last screenshot delivered this session (wired or wireless);
+    /// fall back to the newest file in the save folder so the menu item works
+    /// right after launch too.
+    @MainActor
+    private func showLastScreenshot() {
+        if presenter.lastFileURL != nil {
+            presenter.showLast()
+            return
+        }
+        if let latest = store.latestFile() {
+            presenter.present(fileURL: latest)
+        } else {
+            Log.info("Show Last Screenshot: no screenshots in \(store.folder.path)")
+        }
     }
 
     private func wirelessSetupInfo() -> WirelessSetupInfo {
