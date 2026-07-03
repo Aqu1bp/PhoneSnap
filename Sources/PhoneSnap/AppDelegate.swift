@@ -27,6 +27,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         })
         statusItemController = StatusItemController(
+            wiredStatus: { [weak self] in
+                let names = self?.cameraBridge?.connectedDeviceNames ?? []
+                if names.isEmpty {
+                    return "Wired: no iPhone connected — plug in and trust this Mac"
+                }
+                return "Wired: connected to \(names.joined(separator: ", "))"
+            },
             wirelessStatus: { [weak self] in
                 self?.wirelessState.menuTitle ?? WirelessReceiver.State.stopped.menuTitle
             },
@@ -56,6 +63,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         cameraBridge = CameraBridge { [weak self] data, name in
             guard let self else { return }
             _ = self.deliver(data: data, source: "Cable(\(name))")
+        }
+        cameraBridge.onDevicesChanged = { [weak self] names in
+            self?.statusItemController.setConnected(!names.isEmpty)
+            self?.statusItemController.refresh()
         }
 
         do {

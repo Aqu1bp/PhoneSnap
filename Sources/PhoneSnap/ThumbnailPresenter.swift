@@ -18,6 +18,11 @@ final class ThumbnailPresenter {
         let controller = ThumbnailWindowController(image: image, fileURL: fileURL) { [weak self] c in
             self?.controllers.removeAll { $0 === c }
         }
+        controller.onDeleted = { [weak self] url in
+            if self?.lastFileURL == url {
+                self?.lastFileURL = nil
+            }
+        }
         controllers.append(controller)
         controller.show()
     }

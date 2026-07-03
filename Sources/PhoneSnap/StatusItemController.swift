@@ -2,41 +2,49 @@ import AppKit
 
 final class StatusItemController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
+    private let wiredStatus: () -> String
     private let wirelessStatus: () -> String
     private let onShowLast: () -> Void
     private let onRevealFolder: () -> Void
     private let onSetupWireless: () -> Void
 
-    init(wirelessStatus: @escaping () -> String,
+    init(wiredStatus: @escaping () -> String,
+         wirelessStatus: @escaping () -> String,
          onShowLast: @escaping () -> Void,
          onRevealFolder: @escaping () -> Void,
          onSetupWireless: @escaping () -> Void) {
+        self.wiredStatus = wiredStatus
         self.wirelessStatus = wirelessStatus
         self.onShowLast = onShowLast
         self.onRevealFolder = onRevealFolder
         self.onSetupWireless = onSetupWireless
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
-        if let button = statusItem.button {
-            if let symbol = NSImage(systemSymbolName: "iphone.gen3.badge.checkmark", accessibilityDescription: "PhoneSnap") {
-                symbol.isTemplate = true
-                button.image = symbol
-            } else {
-                button.title = "PS"
-            }
-            button.toolTip = "PhoneSnap"
-        }
+        setConnected(false)
         let menu = NSMenu()
         menu.delegate = self
         statusItem.menu = menu
         refresh()
     }
 
+    /// Swap the menu bar icon to reflect whether a trusted iPhone is attached.
+    func setConnected(_ connected: Bool) {
+        guard let button = statusItem.button else { return }
+        let symbolName = connected ? "iphone.gen3.badge.checkmark" : "iphone.gen3"
+        if let symbol = NSImage(systemSymbolName: symbolName, accessibilityDescription: "PhoneSnap") {
+            symbol.isTemplate = true
+            button.image = symbol
+        } else {
+            button.title = "PS"
+        }
+        button.toolTip = connected ? "PhoneSnap — iPhone connected" : "PhoneSnap — no iPhone connected"
+    }
+
     func refresh() {
         guard let menu = statusItem.menu else { return }
         menu.removeAllItems()
 
-        let status = NSMenuItem(title: "Wired mode: connect a trusted iPhone", action: nil, keyEquivalent: "")
+        let status = NSMenuItem(title: wiredStatus(), action: nil, keyEquivalent: "")
         status.isEnabled = false
         menu.addItem(status)
 

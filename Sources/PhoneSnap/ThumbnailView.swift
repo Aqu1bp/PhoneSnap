@@ -17,6 +17,7 @@ final class ThumbnailView: NSView, NSDraggingSource {
     var onCopy: (() -> Void)?
     var onSave: (() -> Void)?
     var onOpen: (() -> Void)?
+    var onDelete: (() -> Void)?
     var onHoverChange: ((Bool) -> Void)?
     var onEscape: (() -> Void)?
 
@@ -60,12 +61,15 @@ final class ThumbnailView: NSView, NSDraggingSource {
         buttonStack.alignment = .centerY
         buttonStack.distribution = .fillEqually
         buttonStack.translatesAutoresizingMaskIntoConstraints = false
-        let copy = makeIconButton(symbol: "doc.on.clipboard", tooltip: "Copy", action: #selector(copyPressed))
-        let save = makeIconButton(symbol: "square.and.arrow.down", tooltip: "Save…", action: #selector(savePressed))
+        let copy = makeIconButton(symbol: "doc.on.clipboard", tooltip: "Copy (⌘C)", action: #selector(copyPressed))
+        let save = makeIconButton(symbol: "square.and.arrow.down", tooltip: "Save to Downloads (⌘S)", action: #selector(savePressed))
         let open = makeIconButton(symbol: "arrow.up.forward.app", tooltip: "Open in Preview", action: #selector(openPressed))
+        let trash = makeIconButton(symbol: "trash", tooltip: "Delete screenshot (⌘⌫)", action: #selector(deletePressed))
+        trash.contentTintColor = NSColor.systemRed.blended(withFraction: 0.35, of: .white) ?? .systemRed
         buttonStack.addArrangedSubview(copy)
         buttonStack.addArrangedSubview(save)
         buttonStack.addArrangedSubview(open)
+        buttonStack.addArrangedSubview(trash)
         bar.addSubview(buttonStack)
 
         NSLayoutConstraint.activate([
@@ -218,6 +222,9 @@ final class ThumbnailView: NSView, NSDraggingSource {
                 case 1 where event.modifierFlags.contains(.command): // ⌘S
                     self.onSave?()
                     return nil
+                case 51 where event.modifierFlags.contains(.command): // ⌘⌫
+                    self.onDelete?()
+                    return nil
                 default:
                     break
                 }
@@ -252,6 +259,7 @@ final class ThumbnailView: NSView, NSDraggingSource {
     @objc private func copyPressed() { onCopy?() }
     @objc private func savePressed() { onSave?() }
     @objc private func openPressed() { onOpen?() }
+    @objc private func deletePressed() { onDelete?() }
 
     func flashConfirmation(_ text: String) {
         confirmationLabel.stringValue = "  \(text)  "

@@ -20,6 +20,14 @@ import ImageCaptureCore
 final class CameraBridge: NSObject, ICCameraDeviceDownloadDelegate {
     typealias NewImageHandler = (Data, String) -> Void
 
+    /// Called on device attach/detach so the UI can show live connection state.
+    var onDevicesChanged: (([String]) -> Void)?
+
+    /// Names of currently attached, session-opened iPhone/iPad devices.
+    var connectedDeviceNames: [String] {
+        devices.map { $0.name ?? "iPhone" }
+    }
+
     private let browser = ICDeviceBrowser()
     private let onNewImage: NewImageHandler
     private var devices: [ICCameraDevice] = []
@@ -61,6 +69,7 @@ final class CameraBridge: NSObject, ICCameraDeviceDownloadDelegate {
         for d in devices { d.requestCloseSession() }
         devices.removeAll()
         processedItemIDs.removeAll()
+        notifyDevicesChanged()
     }
 
     // MARK: download
@@ -151,6 +160,7 @@ extension CameraBridge: ICDeviceBrowserDelegate {
         devices.append(cam)
         Log.info("CameraBridge: \(cam.name ?? "?") attached (\(cam.transportType ?? "?")); opening session…")
         cam.requestOpenSession()
+        notifyDevicesChanged()
     }
 
     func deviceBrowser(_ browser: ICDeviceBrowser,
@@ -160,6 +170,14 @@ extension CameraBridge: ICDeviceBrowserDelegate {
         if let cam = device as? ICCameraDevice,
            let idx = devices.firstIndex(where: { $0 === cam }) {
             devices.remove(at: idx)
+        }
+        notifyDevicesChanged()
+    }
+
+    private func notifyDevicesChanged() {
+        let names = connectedDeviceNames
+        DispatchQueue.main.async { [weak self] in
+            self?.onDevicesChanged?(names)
         }
     }
 }

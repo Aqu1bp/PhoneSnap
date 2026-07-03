@@ -12,6 +12,9 @@ final class ThumbnailWindowController: NSObject {
     private static let barHeight: CGFloat = 34
     private static let edgeInset: CGFloat = 16
 
+    /// Set by the presenter so it can forget a screenshot the user deleted.
+    var onDeleted: ((URL) -> Void)?
+
     init(image: NSImage, fileURL: URL, onDismissed: @escaping (ThumbnailWindowController) -> Void) {
         self.onDismissed = onDismissed
         let imageSize = Self.scaledImageSize(for: image.size)
@@ -51,6 +54,7 @@ final class ThumbnailWindowController: NSObject {
         view.onCopy = { [weak self] in self?.copyToPasteboard() }
         view.onSave = { [weak self] in self?.saveAs() }
         view.onOpen = { [weak self] in self?.openInPreview() }
+        view.onDelete = { [weak self] in self?.deleteFile() }
         view.onHoverChange = { [weak self] hovering in
             if hovering {
                 self?.cancelTimer()
@@ -156,6 +160,20 @@ final class ThumbnailWindowController: NSObject {
         } catch {
             Log.error("Save copy failed: \(error)")
             view.flashConfirmation("Save failed")
+        }
+    }
+
+    private func deleteFile() {
+        let url = view.fileURL
+        do {
+            // Move to Trash rather than unlink so an accidental tap is recoverable.
+            try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+            Log.info("Moved to Trash: \(url.lastPathComponent)")
+            onDeleted?(url)
+            dismissImmediately()
+        } catch {
+            Log.error("Delete failed: \(error)")
+            view.flashConfirmation("Delete failed")
         }
     }
 
