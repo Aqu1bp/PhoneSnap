@@ -200,6 +200,20 @@ enum WirelessShortcutGenerator {
                     <string>$$REPEAT_START_UUID$$</string>
                     <key>WFControlFlowMode</key>
                     <integer>0</integer>
+                    <key>WFInput</key>
+                    <dict>
+                        <key>Value</key>
+                        <dict>
+                            <key>OutputName</key>
+                            <string>Latest Screenshots</string>
+                            <key>OutputUUID</key>
+                            <string>$$SCREENSHOT_UUID$$</string>
+                            <key>Type</key>
+                            <string>ActionOutput</string>
+                        </dict>
+                        <key>WFSerializationType</key>
+                        <string>WFTextTokenAttachment</string>
+                    </dict>
                 </dict>
             </dict>
             <dict>

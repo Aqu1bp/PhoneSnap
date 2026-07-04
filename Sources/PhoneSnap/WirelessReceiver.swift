@@ -274,6 +274,7 @@ private final class WirelessHTTPSession {
 
     private func handleRequest() {
         let path = Self.pathOnly(from: target)
+        Log.info("Wireless HTTP \(method) \(path) (\(body.count) body bytes)")
         if method == "GET" || method == "HEAD" {
             if path == "/pair/\(pairing.pairID)" || path == "/pair/\(pairing.pairID)/" {
                 handleSetupPage()
@@ -448,6 +449,7 @@ private final class WirelessHTTPSession {
                              extraHeaders: [String: String] = [:]) {
         guard !responseQueued else { return }
         responseQueued = true
+        Log.info("Wireless HTTP → \(status) for \(method) \(Self.pathOnly(from: target))")
         var header = "HTTP/1.1 \(status)\r\n"
         header += "Content-Type: \(contentType)\r\n"
         header += "Content-Length: \(body.count)\r\n"
