@@ -335,14 +335,26 @@ final class RecentFromIPhoneThumbnailView: NSView, NSDraggingSource {
         mouseDownLocation = nil
     }
 
+    private var pendingCopy: DispatchWorkItem?
+
     override func mouseUp(with event: NSEvent) {
         mouseDownLocation = nil
         if dragSessionActive { dragSessionActive = false; return }
         if event.clickCount >= 2 {
+            // Cancel the pending single-click copy — otherwise a double
+            // click copies on the first click and opens on the second.
+            pendingCopy?.cancel()
+            pendingCopy = nil
             NSWorkspace.shared.open(fileURL)
         } else {
-            Pasteboard.write(fileURL: fileURL)
-            flashCopied()
+            let work = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                self.pendingCopy = nil
+                Pasteboard.write(fileURL: self.fileURL)
+                self.flashCopied()
+            }
+            pendingCopy = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + NSEvent.doubleClickInterval, execute: work)
         }
     }
 
