@@ -13,6 +13,7 @@ final class WirelessBatchPresenter {
     /// the rest of the batch streams in — no debounce; waiting for the batch
     /// to go quiet made the panel feel several seconds late.
     func enqueue(fileURL: URL) {
+        items.removeAll { $0 == fileURL }
         items.insert(fileURL, at: 0)
         if items.count > Self.maxItems {
             items.removeLast(items.count - Self.maxItems)
@@ -61,6 +62,7 @@ final class RecentFromIPhonePanelController: NSObject {
         super.init()
 
         panel.title = "Recent from iPhone"
+        panel.isReleasedWhenClosed = false
         panel.isFloatingPanel = true
         panel.level = .floating
         panel.hidesOnDeactivate = false

@@ -129,24 +129,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Hashes of wireless uploads already received this session. The Shortcut
-    /// re-sends the latest 10 screenshots on every run, so without this each
-    /// run would re-save (and re-show) mostly duplicates.
-    private var seenWirelessHashes: Set<String> = []
-    private let seenWirelessHashesLock = NSLock()
+    /// Hash → saved file for wireless uploads received this session. The
+    /// Shortcut re-sends the latest 10 screenshots on every run, so
+    /// duplicates skip the disk write — but still re-surface in the panel,
+    /// otherwise a second run after closing the panel shows nothing.
+    private var seenWirelessUploads: [String: URL] = [:]
+    private let seenWirelessUploadsLock = NSLock()
 
     @discardableResult
     private func deliverWireless(data: Data) -> Bool {
         let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-        seenWirelessHashesLock.lock()
-        let isNew = seenWirelessHashes.insert(digest).inserted
-        seenWirelessHashesLock.unlock()
-        guard isNew else {
-            Log.info("Wireless upload skipped: duplicate of an image already received this session")
+        seenWirelessUploadsLock.lock()
+        let existing = seenWirelessUploads[digest]
+        seenWirelessUploadsLock.unlock()
+        if let existing {
+            Log.info("Wireless upload already received this session: re-showing \(existing.lastPathComponent)")
+            DispatchQueue.main.async { [weak self] in
+                self?.wirelessBatchPresenter.enqueue(fileURL: existing)
+            }
             return true
         }
         do {
             let url = try store.save(data: data)
+            seenWirelessUploadsLock.lock()
+            seenWirelessUploads[digest] = url
+            seenWirelessUploadsLock.unlock()
             Log.info("Delivered via Wireless Shortcut Batch: \(url.lastPathComponent)")
             DispatchQueue.main.async { [weak self] in
                 self?.wirelessBatchPresenter.enqueue(fileURL: url)
