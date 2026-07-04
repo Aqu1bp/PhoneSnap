@@ -1,5 +1,7 @@
 # PhoneSnap
 
+[![CI](https://github.com/Aqu1bp/PhoneSnap/actions/workflows/ci.yml/badge.svg)](https://github.com/Aqu1bp/PhoneSnap/actions/workflows/ci.yml)
+
 Drag real iPhone screenshots into your coding agent.
 
 PhoneSnap is a small macOS menu bar app for AI-assisted iOS work. Plug in a trusted iPhone over USB, or run the generated iOS Shortcut over Wi-Fi, and PhoneSnap turns real device screenshots into draggable Mac thumbnails.
@@ -39,8 +41,8 @@ USB is the primary path because macOS exposes a trusted plugged-in iPhone as a c
 ## Quick Start
 
 ```bash
-git clone <this repo>
-cd <repo folder>
+git clone https://github.com/Aqu1bp/PhoneSnap.git
+cd PhoneSnap
 ./scripts/build-app.sh
 open ./PhoneSnap.app
 ```
@@ -94,6 +96,8 @@ The `senders/` packages are deprecated as a main product path for now. They are 
 - Wireless Shortcut uploads do not show the wired single thumbnail by default.
 - The Mac opens a floating **Recent from iPhone** panel immediately and updates it as more screenshots arrive.
 - Each panel thumbnail can be dragged into agent apps and file drop targets.
+- Click a panel thumbnail to copy it to the clipboard.
+- Double-click a panel thumbnail to open it in Preview.
 - The latest wireless upload is also written to the pasteboard for paste workflows.
 
 ## Where Screenshots Are Saved
@@ -186,7 +190,7 @@ PhoneSnap/
 │   ├── expo                       Expo prototype
 │   ├── react-native               intended API stub
 │   └── flutter                    intended API stub
-├── Sources/PhoneSnap/       macOS menu bar app
+├── Sources/PhoneSnap/             macOS menu bar app
 │   ├── AppDelegate.swift          app lifecycle and delivery pipeline
 │   ├── CameraBridge.swift         ImageCaptureCore USB watcher
 │   ├── ImageStore.swift           save received bytes as PNG
@@ -203,6 +207,7 @@ PhoneSnap/
 ├── Sources/ICProbe/               ImageCaptureCore probe utility
 ├── Sources/UsbmuxdProbe/          usbmuxd probe utility
 ├── scripts/build-app.sh           wraps the SwiftPM binary into PhoneSnap.app
+├── scripts/smoke-test.sh          wireless receiver smoke test used by CI
 ├── Package.swift
 └── README.md
 ```
