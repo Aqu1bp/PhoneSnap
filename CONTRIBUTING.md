@@ -7,6 +7,7 @@ Thanks for your interest in PhoneSnap!
 ```bash
 swift build            # debug build of all targets
 ./scripts/build-app.sh # release build wrapped into PhoneSnap.app
+./scripts/smoke-test.sh # wireless receiver smoke test after swift build
 swift run PhoneSnap    # run from source with logs on stderr
 ```
 
@@ -26,6 +27,11 @@ The wireless receiver can be exercised without an iPhone:
 PHONESNAP_WIRELESS_PORT=18472 PHONESNAP_DIR=/tmp/phonesnap-test swift run PhoneSnap
 curl -i http://127.0.0.1:18472/pair/<pairId>
 ```
+
+## Roadmap
+
+See [ROADMAP.md](ROADMAP.md) for the current direction and small issues that
+are good places to start.
 
 ## Guidelines
 
