@@ -123,7 +123,9 @@ final class ThumbnailWindowController: NSObject {
     private func scheduleDismiss() {
         cancelTimer()
         dismissTimer = Timer.scheduledTimer(withTimeInterval: Self.displayDuration, repeats: false) { [weak self] _ in
-            Task { @MainActor in self?.dismissImmediately() }
+            // Explicit capture keeps Swift 5.10 (CI toolchain) happy: referencing
+            // the outer closure's mutable weak binding inside a Task is an error there.
+            Task { @MainActor [weak self] in self?.dismissImmediately() }
         }
     }
     private func cancelTimer() {
