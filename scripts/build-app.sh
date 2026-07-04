@@ -19,6 +19,7 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_SRC" "$APP/Contents/MacOS/PhoneSnap"
 chmod +x "$APP/Contents/MacOS/PhoneSnap"
+cp Resources/PhoneSnap.icns "$APP/Contents/Resources/PhoneSnap.icns"
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -35,6 +36,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <string>1</string>
   <key>CFBundleShortVersionString</key>
   <string>0.1.0</string>
+  <key>CFBundleIconFile</key>
+  <string>PhoneSnap</string>
   <key>CFBundleExecutable</key>
   <string>PhoneSnap</string>
   <key>CFBundlePackageType</key>
