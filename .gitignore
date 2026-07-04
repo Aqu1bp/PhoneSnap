@@ -2,7 +2,20 @@
 .swiftpm/
 DerivedData/
 *.xcuserstate
+xcuserdata/
 PhoneSnap.app/
+.DS_Store
+*.log
+
+# local environment / credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.mobileprovision
+*.provisionprofile
 
 # captured screenshots that land in repo if a save folder is pointed here
 Screenshot*.png

@@ -45,7 +45,7 @@ Supported routes:
 - `GET /pair/<pairId>/PhoneSnap.shortcut`: generated signed Shortcut file.
 - `POST /api/v1/upload/<pairId>`: screenshot upload endpoint.
 
-The receiver caps request bodies at 32 MB, accepts raw image bodies and multipart image/file bodies, and requires `Authorization: Bearer <token>` for uploads. A token query parameter is accepted as a compatibility fallback.
+The receiver caps request bodies at 32 MB, accepts raw image bodies and multipart image/file bodies, and requires `Authorization: Bearer <token>` for uploads. Query-string tokens are rejected so bearer tokens do not leak through URLs, logs, or browser history.
 
 `WirelessPairing` persists a short random pair ID and high-entropy bearer token in `UserDefaults`, so installed Shortcuts keep working across app restarts.
 
