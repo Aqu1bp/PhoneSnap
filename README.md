@@ -52,11 +52,11 @@ The app uses Apple's ImageCaptureCore framework. macOS exposes a trusted, plugge
 
 1. Open the PhoneSnap menu bar item.
 2. Choose **Set Up Wireless Shortcut...**.
-3. Scan the setup QR code with the iPhone Camera, or copy/open the setup URL.
+3. Scan the setup QR code with the iPhone Camera, or copy/open the setup URL. If the `.local` hostname will not load on your network, switch the QR to **IP address** in the setup window.
 4. On the iPhone, open `PhoneSnap.shortcut` and add it in Shortcuts.
 5. Take a screenshot, then run the PhoneSnap Shortcut from Shortcuts, Action Button, Back Tap, Control Center, or the Home Screen.
 
-The Shortcut is generated locally by the Mac app. It asks Photos for the latest 10 screenshots and posts each image to `POST /api/v1/upload/<pairId>` with a persisted bearer token, so the user does not type the URL, method, headers, or body. The Mac groups arrivals from the Shortcut and opens a floating **Recent from iPhone** panel with draggable thumbnails. This remains useful when USB is unavailable.
+The Shortcut is generated locally by the Mac app. It asks Photos for the latest screenshot batch (10 by default, configurable with `PHONESNAP_BATCH_COUNT`) and posts each image to `POST /api/v1/upload/<pairId>` with a persisted bearer token, so the user does not type the URL, method, headers, or body. The Mac groups arrivals from the Shortcut and opens a floating **Recent from iPhone** panel with draggable thumbnails. This remains useful when USB is unavailable.
 
 Existing installed PhoneSnap Shortcuts should be removed and reinstalled from the setup page to get batch behavior.
 
@@ -112,6 +112,7 @@ PHONESNAP_DIR=~/Desktop/screenshots open ./PhoneSnap.app
 | Stop the app | Menu bar item -> Quit, or `pkill -f PhoneSnap` |
 | Change save folder | `PHONESNAP_DIR=~/wherever open ./PhoneSnap.app` |
 | Change wireless port | `PHONESNAP_WIRELESS_PORT=18472 open ./PhoneSnap.app` |
+| Change Shortcut batch size (1-50, default 10) | `PHONESNAP_BATCH_COUNT=20 open ./PhoneSnap.app`, then re-download and re-add the Shortcut |
 
 ## How It Works
 
@@ -126,7 +127,7 @@ iPhone over USB
 
 iPhone over Wi-Fi
   user runs generated PhoneSnap Shortcut
-    -> Shortcut reads latest 10 screenshots from Photos
+    -> Shortcut reads the latest screenshot batch from Photos
     -> repeats over the screenshots
     -> POSTs each image to the Mac receiver with Authorization: Bearer <token>
     -> Mac saves each PNG, updates pasteboard to the latest upload
@@ -148,9 +149,11 @@ iPhone over Wi-Fi experimental
 | Clipboard paste fails | Use the thumbnail copy button; if it still fails, run from terminal with `swift run PhoneSnap` and check logs. |
 | App does not launch | Rebuild with `./scripts/build-app.sh`. |
 | Thumbnail appears on the wrong display | Move the mouse to the target display before taking the screenshot. |
-| Wireless setup page does not load | Keep the Mac app running, put both devices on the same LAN, and try the fallback LAN URL shown in the setup window. |
+| Wireless setup page does not load | Keep the Mac app running and put both devices on the same LAN. If macOS asked about incoming connections, allow PhoneSnap in System Settings → Network → Firewall. If the `.local` name will not resolve, switch the setup window QR to **IP address**. |
 | Wireless receiver is unavailable | Another process may be using the port. Quit the other process or relaunch with `PHONESNAP_WIRELESS_PORT=<port>`. Wired mode should still work. |
-| Shortcut download fails | Run from terminal with `swift run PhoneSnap`; the setup route reports `/usr/bin/shortcuts sign` errors instead of crashing. |
+| Shortcut used to work but now fails silently | If it was installed from the IP address URL, the Mac's IP likely changed. Rerun setup and re-add the Shortcut; prefer the `.local` hostname URL when it loads. |
+| Shortcut runs but nothing appears on the Mac | Confirm screenshots exist in Photos, both devices are on the same LAN, and Shortcuts has local-network permission (iPhone Settings → Privacy & Security → Local Network). |
+| Shortcut download fails | Run from terminal with `swift run PhoneSnap`; the setup route reports `/usr/bin/shortcuts sign` errors instead of crashing. If signing fails or times out on a fresh Mac, open the Shortcuts app once and retry. |
 
 ## Known Limitations
 

@@ -2,7 +2,6 @@
 .swiftpm/
 DerivedData/
 *.xcuserstate
-ScreenshotCatch.app/
 PhoneSnap.app/
 
 # captured screenshots that land in repo if a save folder is pointed here

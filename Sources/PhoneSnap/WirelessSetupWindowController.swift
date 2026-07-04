@@ -23,6 +23,9 @@ struct WirelessSetupInfo {
 final class WirelessSetupWindowController {
     private var window: NSWindow?
     private let infoProvider: () -> WirelessSetupInfo
+    /// Which URL the QR code encodes: the `.local` hostname (default) or the
+    /// LAN IP fallback for networks where mDNS does not resolve.
+    private var showsFallbackQR = false
 
     init(infoProvider: @escaping () -> WirelessSetupInfo) {
         self.infoProvider = infoProvider
@@ -56,8 +59,17 @@ final class WirelessSetupWindowController {
         window.contentView = makeContent()
     }
 
+    private func selectedSetupURL(_ info: WirelessSetupInfo) -> String {
+        if showsFallbackQR, let fallback = info.fallbackSetupURL {
+            return fallback
+        }
+        return info.primarySetupURL
+    }
+
     private func makeContent() -> NSView {
         let info = infoProvider()
+        if info.fallbackSetupURL == nil { showsFallbackQR = false }
+        let selectedURL = selectedSetupURL(info)
         let root = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: 620))
         root.wantsLayer = true
         root.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
@@ -85,6 +97,20 @@ final class WirelessSetupWindowController {
         status.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(status)
 
+        var urlPicker: NSSegmentedControl?
+        if info.fallbackSetupURL != nil {
+            let picker = NSSegmentedControl(
+                labels: ["Hostname (.local)", "IP address"],
+                trackingMode: .selectOne,
+                target: self,
+                action: #selector(urlSourceChanged(_:))
+            )
+            picker.selectedSegment = showsFallbackQR ? 1 : 0
+            picker.translatesAutoresizingMaskIntoConstraints = false
+            root.addSubview(picker)
+            urlPicker = picker
+        }
+
         let qrImageView = NSImageView()
         qrImageView.imageScaling = .scaleProportionallyUpOrDown
         qrImageView.wantsLayer = true
@@ -92,9 +118,9 @@ final class WirelessSetupWindowController {
         qrImageView.layer?.cornerRadius = 8
         qrImageView.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(qrImageView)
-        qrImageView.image = qrImage(from: info.primarySetupURL, size: 250)
+        qrImageView.image = qrImage(from: selectedURL, size: 250)
 
-        let urlLabel = NSTextField(wrappingLabelWithString: info.primarySetupURL)
+        let urlLabel = NSTextField(wrappingLabelWithString: selectedURL)
         urlLabel.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
         urlLabel.alignment = .center
         urlLabel.textColor = .secondaryLabelColor
@@ -103,8 +129,14 @@ final class WirelessSetupWindowController {
         urlLabel.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(urlLabel)
 
-        let fallbackText = info.fallbackSetupURL.map { "Fallback LAN URL: \($0)" }
-            ?? "Fallback LAN URL unavailable until this Mac has a LAN IPv4 address."
+        let fallbackText: String
+        if info.fallbackSetupURL == nil {
+            fallbackText = "IP address URL unavailable until this Mac has a LAN IPv4 address."
+        } else if showsFallbackQR {
+            fallbackText = "A Shortcut installed from the IP URL stops working when the Mac's IP changes. Prefer the hostname URL when it loads on the iPhone."
+        } else {
+            fallbackText = "If the hostname URL will not load on the iPhone, switch to the IP address URL above."
+        }
         let fallbackLabel = NSTextField(wrappingLabelWithString: fallbackText)
         fallbackLabel.font = NSFont.systemFont(ofSize: 11)
         fallbackLabel.alignment = .center
@@ -139,7 +171,7 @@ final class WirelessSetupWindowController {
         hint.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(hint)
 
-        NSLayoutConstraint.activate([
+        var constraints = [
             title.topAnchor.constraint(equalTo: root.topAnchor, constant: 24),
             title.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 28),
             title.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -28),
@@ -152,7 +184,6 @@ final class WirelessSetupWindowController {
             status.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
             status.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
 
-            qrImageView.topAnchor.constraint(equalTo: status.bottomAnchor, constant: 18),
             qrImageView.centerXAnchor.constraint(equalTo: root.centerXAnchor),
             qrImageView.widthAnchor.constraint(equalToConstant: 250),
             qrImageView.heightAnchor.constraint(equalToConstant: 250),
@@ -172,18 +203,35 @@ final class WirelessSetupWindowController {
             hint.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 32),
             hint.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -32),
             hint.bottomAnchor.constraint(lessThanOrEqualTo: root.bottomAnchor, constant: -24)
-        ])
+        ]
+
+        if let urlPicker {
+            constraints.append(contentsOf: [
+                urlPicker.topAnchor.constraint(equalTo: status.bottomAnchor, constant: 12),
+                urlPicker.centerXAnchor.constraint(equalTo: root.centerXAnchor),
+                qrImageView.topAnchor.constraint(equalTo: urlPicker.bottomAnchor, constant: 14)
+            ])
+        } else {
+            constraints.append(qrImageView.topAnchor.constraint(equalTo: status.bottomAnchor, constant: 18))
+        }
+
+        NSLayoutConstraint.activate(constraints)
 
         return root
     }
 
+    @objc private func urlSourceChanged(_ sender: NSSegmentedControl) {
+        showsFallbackQR = sender.selectedSegment == 1
+        window?.contentView = makeContent()
+    }
+
     @objc private func copySetupURL() {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(infoProvider().primarySetupURL, forType: .string)
+        NSPasteboard.general.setString(selectedSetupURL(infoProvider()), forType: .string)
     }
 
     @objc private func openSetupURL() {
-        guard let url = URL(string: infoProvider().primarySetupURL) else { return }
+        guard let url = URL(string: selectedSetupURL(infoProvider())) else { return }
         NSWorkspace.shared.open(url)
     }
 

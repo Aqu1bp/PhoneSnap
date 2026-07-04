@@ -27,6 +27,7 @@ final class WirelessReceiver {
 
     private let port: UInt16
     private let pairing: WirelessPairing
+    private let batchCount: Int
     private let uploadHandler: UploadHandler
     private let stateHandler: StateHandler
     private let queue = DispatchQueue(label: "phonesnap.wireless")
@@ -37,10 +38,12 @@ final class WirelessReceiver {
 
     init(port: UInt16,
          pairing: WirelessPairing,
+         batchCount: Int = 10,
          uploadHandler: @escaping UploadHandler,
          stateHandler: @escaping StateHandler) {
         self.port = port
         self.pairing = pairing
+        self.batchCount = batchCount
         self.uploadHandler = uploadHandler
         self.stateHandler = stateHandler
     }
@@ -99,6 +102,7 @@ final class WirelessReceiver {
             maxBody: maxBody,
             port: port,
             pairing: pairing,
+            batchCount: batchCount,
             primaryBaseURL: primaryBaseURL,
             uploadHandler: uploadHandler
         )
@@ -129,6 +133,7 @@ private final class WirelessHTTPSession {
     private let maxBody: Int
     private let port: UInt16
     private let pairing: WirelessPairing
+    private let batchCount: Int
     private let primaryBaseURL: String
     private let uploadHandler: (Data) -> Bool
     private var buffer = Data()
@@ -148,6 +153,7 @@ private final class WirelessHTTPSession {
          maxBody: Int,
          port: UInt16,
          pairing: WirelessPairing,
+         batchCount: Int,
          primaryBaseURL: String,
          uploadHandler: @escaping (Data) -> Bool) {
         self.connection = connection
@@ -155,6 +161,7 @@ private final class WirelessHTTPSession {
         self.maxBody = maxBody
         self.port = port
         self.pairing = pairing
+        self.batchCount = batchCount
         self.primaryBaseURL = primaryBaseURL
         self.uploadHandler = uploadHandler
     }
@@ -259,6 +266,15 @@ private final class WirelessHTTPSession {
             headers[key] = value
         }
 
+        if let transferEncoding = headers["transfer-encoding"],
+           transferEncoding.lowercased() != "identity" {
+            headersParsed = true
+            contentLength = 0
+            body = Data()
+            respond(status: "501 Not Implemented", text: "Transfer-Encoding is not supported; send a Content-Length body")
+            return true
+        }
+
         contentLength = Int(headers["content-length"] ?? "0") ?? 0
         if contentLength > maxBody {
             headersParsed = true
@@ -307,27 +323,51 @@ private final class WirelessHTTPSession {
         )
     }
 
+    /// Signing runs a `/usr/bin/shortcuts` subprocess. It must stay off the
+    /// shared connection queue (a slow or hung signing would stall every
+    /// other request), and it is serialized so concurrent downloads cannot
+    /// each spawn a signing process — the route is reachable with just the
+    /// pair ID, before bearer-token auth applies.
+    private static let signingQueue = DispatchQueue(label: "phonesnap.shortcut-signing")
+
     private func handleShortcutDownload() {
         guard method == "GET" || method == "HEAD" else {
             respond(status: "405 Method Not Allowed", text: "GET only")
             return
         }
-        do {
-            let uploadURL = "\(requestBaseURL())/api/v1/upload/\(pairing.pairID)"
-            let bytes = method == "HEAD"
-                ? Data()
-                : try WirelessShortcutGenerator.makeSigned(uploadURL: uploadURL, token: pairing.token)
-            Log.info("Generated PhoneSnap.shortcut for \(uploadURL) (\(bytes.count) bytes)")
+        let uploadURL = "\(requestBaseURL())/api/v1/upload/\(pairing.pairID)"
+        if method == "HEAD" {
             respondData(
                 status: "200 OK",
-                body: bytes,
+                body: Data(),
                 contentType: "application/x-apple-shortcut",
                 extraHeaders: ["Cache-Control": "no-store"]
             )
-        } catch {
-            let message = error.localizedDescription
-            Log.error("Shortcut generation failed: \(message)")
-            respond(status: "500 Internal Server Error", text: "PhoneSnap could not generate the Shortcut.\n\n\(message)")
+            return
+        }
+        let token = pairing.token
+        let batchCount = self.batchCount
+        Self.signingQueue.async { [weak self] in
+            let result = Result {
+                try WirelessShortcutGenerator.makeSigned(uploadURL: uploadURL, token: token, batchCount: batchCount)
+            }
+            guard let self else { return }
+            self.queue.async {
+                switch result {
+                case .success(let bytes):
+                    Log.info("Generated PhoneSnap.shortcut for \(uploadURL) (\(bytes.count) bytes)")
+                    self.respondData(
+                        status: "200 OK",
+                        body: bytes,
+                        contentType: "application/x-apple-shortcut",
+                        extraHeaders: ["Cache-Control": "no-store"]
+                    )
+                case .failure(let error):
+                    let message = error.localizedDescription
+                    Log.error("Shortcut generation failed: \(message)")
+                    self.respond(status: "500 Internal Server Error", text: "PhoneSnap could not generate the Shortcut.\n\n\(message)")
+                }
+            }
         }
     }
 
@@ -340,6 +380,10 @@ private final class WirelessHTTPSession {
             respond(status: "401 Unauthorized", text: "missing or invalid PhoneSnap token", extraHeaders: [
                 "WWW-Authenticate": "Bearer"
             ])
+            return
+        }
+        guard headers["content-length"] != nil else {
+            respond(status: "411 Length Required", text: "POST requests must include Content-Length")
             return
         }
         guard !body.isEmpty else {
@@ -387,10 +431,18 @@ private final class WirelessHTTPSession {
     }
 
     private func setupHTML() -> String {
-        let setupURL = "\(requestBaseURL())/pair/\(pairing.pairID)"
+        let baseURL = requestBaseURL()
+        let setupURL = "\(baseURL)/pair/\(pairing.pairID)"
         let shortcutURL = "\(setupURL)/PhoneSnap.shortcut"
         let escapedSetupURL = Self.htmlEscape(setupURL)
         let escapedShortcutURL = Self.htmlEscape(shortcutURL)
+        // The Shortcut bakes in the host this page was reached through. A raw
+        // IP stops working when the Mac's address changes, so warn up front.
+        let ipNote = Self.isIPBaseURL(baseURL)
+            ? """
+            <p class="note"><strong>Heads up:</strong> you opened this page with the Mac\u{2019}s IP address, so the Shortcut will use that IP. If the Mac\u{2019}s IP changes (for example after a router restart), rerun setup from PhoneSnap\u{2019}s QR code and re-add the Shortcut.</p>
+            """
+            : ""
         return """
         <!doctype html>
         <html lang="en">
@@ -414,6 +466,7 @@ private final class WirelessHTTPSession {
             <p>Open the signed PhoneSnap Shortcut on this iPhone, then tap Add Shortcut in Shortcuts. It sends the recent screenshot batch to this Mac.</p>
             <a class="button" href="\(escapedShortcutURL)">Open PhoneSnap Shortcut</a>
             <p class="note">iOS will still ask you to add the Shortcut. The first run may also ask for Photos or local-network permission.</p>
+            \(ipNote)
             <p class="note">Setup page: <code>\(escapedSetupURL)</code></p>
           </main>
         </body>
@@ -425,7 +478,12 @@ private final class WirelessHTTPSession {
         guard let host = headers["host"].flatMap(Self.safeHostHeader), !host.isEmpty else {
             return primaryBaseURL
         }
-        if host.contains(":") || host.hasPrefix("[") {
+        if host.hasPrefix("[") {
+            // Bracketed IPv6 literal: colons inside the brackets are not a
+            // port, so only reuse the host as-is when "]:port" is present.
+            return host.contains("]:") ? "http://\(host)" : "http://\(host):\(port)"
+        }
+        if host.contains(":") {
             return "http://\(host)"
         }
         return "http://\(host):\(port)"
@@ -484,6 +542,21 @@ private final class WirelessHTTPSession {
         let rawPath = target.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false).first
             .map(String.init) ?? target
         return rawPath.removingPercentEncoding ?? rawPath
+    }
+
+    private static func isIPBaseURL(_ base: String) -> Bool {
+        var host = base
+        if let schemeRange = host.range(of: "://") {
+            host = String(host[schemeRange.upperBound...])
+        }
+        if host.hasPrefix("[") {
+            return true // bracketed IPv6 literal
+        }
+        if let colon = host.firstIndex(of: ":") {
+            host = String(host[..<colon])
+        }
+        let octets = host.split(separator: ".")
+        return octets.count == 4 && octets.allSatisfy { !$0.isEmpty && $0.allSatisfy(\.isNumber) }
     }
 
     private static func safeHostHeader(_ value: String) -> String? {

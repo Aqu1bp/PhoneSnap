@@ -5,7 +5,7 @@ Dev senders are deprecated/experimental for now. The product path is USB automat
 ## Direction
 
 - USB remains the universal automatic mode. A trusted iPhone connected to the Mac is still the primary path because it works for any app on the device without phone-side code.
-- Shortcut is the fallback/manual wireless mode. It is useful when USB is unavailable, but the user must install and run the generated Shortcut. The current Shortcut sends the latest 10 screenshots and the Mac shows **Recent from iPhone**.
+- Shortcut is the fallback/manual wireless mode. It is useful when USB is unavailable, but the user must install and run the generated Shortcut. The current Shortcut sends the latest screenshot batch and the Mac shows **Recent from iPhone**.
 - Automatic wireless dev senders are foreground-app-only experiments. They come from debug code embedded in the app being built, so they can react while that app is active.
 - All wireless senders use the existing Mac receiver contract:
 

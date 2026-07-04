@@ -34,7 +34,7 @@ Optional wireless batch path:
 1. PhoneSnap starts a local HTTP receiver.
 2. The setup window shows a normal HTTP setup URL and QR code.
 3. The iPhone opens a signed generated Shortcut.
-4. Running the Shortcut uploads the latest 10 screenshots to the Mac, one image per request, with a persisted bearer token.
+4. Running the Shortcut uploads the latest screenshot batch to the Mac, one image per request, with a persisted bearer token.
 5. PhoneSnap saves each image, updates the pasteboard to the latest upload, and opens the **Recent from iPhone** batch panel.
 
 ## Notes

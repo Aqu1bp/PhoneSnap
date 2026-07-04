@@ -13,6 +13,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let wirelessPort: UInt16 = {
         ProcessInfo.processInfo.environment["PHONESNAP_WIRELESS_PORT"].flatMap(UInt16.init) ?? 8472
     }()
+    /// How many recent screenshots the generated Shortcut sends per run.
+    /// Baked into the Shortcut at download time — changing it requires
+    /// re-downloading and re-adding the Shortcut on the iPhone.
+    private let wirelessBatchCount: Int = {
+        let value = ProcessInfo.processInfo.environment["PHONESNAP_BATCH_COUNT"].flatMap(Int.init) ?? 10
+        return min(max(value, 1), 50)
+    }()
     private var wirelessState: WirelessReceiver.State = .stopped
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -46,6 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         wirelessReceiver = WirelessReceiver(
             port: wirelessPort,
             pairing: wirelessPairing,
+            batchCount: wirelessBatchCount,
             uploadHandler: { [weak self] data in
                 guard let self else { return false }
                 return self.deliverWireless(data: data)
@@ -130,7 +138,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Hash → saved file for wireless uploads received this session. The
-    /// Shortcut re-sends the latest 10 screenshots on every run, so
+    /// Shortcut re-sends the configured recent screenshot batch on every run, so
     /// duplicates skip the disk write — but still re-surface in the panel,
     /// otherwise a second run after closing the panel shows nothing.
     private var seenWirelessUploads: [String: URL] = [:]

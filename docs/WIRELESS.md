@@ -5,8 +5,8 @@ PhoneSnap includes a local wireless receiver. Wired USB remains the primary univ
 Wireless has one main fallback sender:
 
 - The Mac app starts a small HTTP receiver while PhoneSnap is running.
-- The generated Shortcut is the fallback/manual sender. The user runs it after taking screenshots, and it sends the latest 10 screenshots from Photos.
-- The Shortcut asks for the latest 10 screenshots and posts each image as a separate upload.
+- The generated Shortcut is the fallback/manual sender. The user runs it after taking screenshots, and it sends the latest screenshot batch from Photos.
+- The Shortcut asks for the latest screenshot batch (10 by default; configurable by launching the Mac app with `PHONESNAP_BATCH_COUNT=<1-50>`, then re-downloading and re-adding the Shortcut) and posts each image as a separate upload.
 - The Mac saves each wireless upload, updates pasteboard to the latest upload, and presents a floating **Recent from iPhone** batch panel instead of the wired single thumbnail.
 - Embedded dev senders are deprecated/experimental references, not the main product path.
 
@@ -48,7 +48,9 @@ POST /api/v1/upload/<pairId>
 
 If signing fails, the route returns a clear `500` response and logs the error instead of crashing the app.
 
-`POST /api/v1/upload/<pairId>` accepts either a raw PNG/JPEG body or `multipart/form-data` with an image/file part. The request body limit is 32 MB.
+Signing runs on a dedicated serial queue with a 30-second timeout, so a slow or hung `shortcuts` process can never stall uploads or other connections. Signed bytes are cached per upload URL + token, so repeated downloads do not spawn repeated signing subprocesses — relevant because this route is gated by the pair ID alone, not the bearer token.
+
+`POST /api/v1/upload/<pairId>` accepts either a raw PNG/JPEG body or `multipart/form-data` with an image/file part. The request body limit is 32 MB. Authenticated requests without a `Content-Length` header are rejected with `411 Length Required`; `Transfer-Encoding: chunked` is rejected with `501`.
 
 Uploads should authenticate with:
 
@@ -79,10 +81,12 @@ The pair ID is not treated as the only secret. Existing installed Shortcuts keep
 
 The setup window shows:
 
-- A primary `.local` hostname setup URL for QR setup.
-- A current LAN IPv4 fallback URL when one is available.
+- A primary `.local` hostname setup URL, encoded in the QR code by default.
+- When the Mac has a LAN IPv4 address, a **Hostname (.local) / IP address** toggle that switches the QR code, URL label, and Copy/Open buttons to the IP URL — for networks where mDNS resolution is blocked.
 
-The user should not need to type the route, method, headers, or body. If `.local` name resolution is blocked on the network, the fallback URL can be copied manually.
+The user should not need to type the route, method, headers, or body.
+
+The generated Shortcut bakes in whichever host the iPhone used to reach the setup page. A Shortcut installed from the IP URL stops working when the Mac's IP changes (the setup page shows a warning when opened via IP); rerun setup and reinstall the Shortcut in that case. Link-local addresses (`169.254.*`) and virtual interfaces (VPN `utun`, AirDrop `awdl`, and similar) are never offered as the fallback IP.
 
 ## Limitations
 

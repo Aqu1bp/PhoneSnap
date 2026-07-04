@@ -31,6 +31,11 @@ default). Protections and their limits:
   and quit/relaunch guidance below applies.
 - **Body limits.** Uploads are capped at 32 MB and must decode as an image
   before being saved.
+- **Signing route resource use.** The Shortcut download route spawns a
+  `/usr/bin/shortcuts sign` subprocess and is gated only by the pair ID.
+  Signing is serialized on one queue, capped by a 30-second timeout, and the
+  signed bytes are cached per upload URL, so repeated requests cannot pile up
+  subprocesses or stall the receiver.
 - **Credential storage.** The pair ID and token persist in `UserDefaults`
   (not the Keychain). They are readable by any process running as your user —
   the same trust level as the screenshots folder itself.

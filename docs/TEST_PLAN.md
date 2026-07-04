@@ -97,6 +97,6 @@ First run may require iOS Photos and local-network permission. Existing installe
 
 1. Download `GET /pair/<pairId>/PhoneSnap.shortcut`.
 2. Convert or inspect the signed Shortcut with local plist tools.
-3. Confirm `WFGetLatestPhotoCount` is `10`.
+3. Confirm `WFGetLatestPhotoCount` is `10` by default, or the value from `PHONESNAP_BATCH_COUNT` when that environment variable is set.
 4. Confirm the workflow contains `is.workflow.actions.repeat.each` around the upload action.
 5. Confirm the upload action still uses `POST`, the original upload URL, and `Authorization: Bearer <token>`.

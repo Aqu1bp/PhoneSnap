@@ -6,6 +6,7 @@ enum WirelessShortcutGenerator {
         case plistConversionFailed(Error)
         case signingLaunchFailed(Error)
         case signingFailed(exitCode: Int32, stderr: String)
+        case signingTimedOut
         case readBackFailed(Error)
 
         var errorDescription: String? {
@@ -22,13 +23,29 @@ enum WirelessShortcutGenerator {
                     return "/usr/bin/shortcuts sign failed with exit code \(exitCode)."
                 }
                 return "/usr/bin/shortcuts sign failed with exit code \(exitCode): \(detail)"
+            case .signingTimedOut:
+                return "/usr/bin/shortcuts sign did not finish within \(Int(signingTimeout)) seconds. Open the Shortcuts app once, then try again."
             case .readBackFailed(let error):
                 return "Could not read the signed Shortcut: \(error.localizedDescription)"
             }
         }
     }
 
-    static func makeSigned(uploadURL: String, token: String, shortcutName: String = "PhoneSnap") throws -> Data {
+    /// Signed bytes are stable for a given upload URL + token, so cache them:
+    /// the download route is reachable without the bearer token (the pair ID
+    /// is the capability), and repeated requests must not each spawn a
+    /// signing subprocess.
+    private static let signedCache = SignedShortcutCache(limit: 8)
+    private static let signingTimeout: TimeInterval = 30
+
+    static func makeSigned(uploadURL: String,
+                           token: String,
+                           batchCount: Int = 10,
+                           shortcutName: String = "PhoneSnap") throws -> Data {
+        let batchCount = min(max(batchCount, 1), 50)
+        let cacheKey = "\(uploadURL)\n\(token)\n\(batchCount)\n\(shortcutName)"
+        if let cached = signedCache.value(for: cacheKey) { return cached }
+
         let waitUUID = UUID().uuidString
         let screenshotUUID = UUID().uuidString
         let repeatGroupUUID = UUID().uuidString
@@ -39,6 +56,7 @@ enum WirelessShortcutGenerator {
             .replacingOccurrences(of: "$$SHORTCUT_NAME$$", with: xmlEscape(shortcutName))
             .replacingOccurrences(of: "$$UPLOAD_URL$$", with: xmlEscape(uploadURL))
             .replacingOccurrences(of: "$$TOKEN$$", with: xmlEscape("Bearer \(token)"))
+            .replacingOccurrences(of: "$$BATCH_COUNT$$", with: String(batchCount))
             .replacingOccurrences(of: "$$WAIT_UUID$$", with: waitUUID)
             .replacingOccurrences(of: "$$SCREENSHOT_UUID$$", with: screenshotUUID)
             .replacingOccurrences(of: "$$REPEAT_GROUP_UUID$$", with: repeatGroupUUID)
@@ -89,25 +107,45 @@ enum WirelessShortcutGenerator {
         ]
         let stderrPipe = Pipe()
         process.standardError = stderrPipe
-        process.standardOutput = Pipe()
+        process.standardOutput = FileHandle.nullDevice
+        let exited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exited.signal() }
         do {
             try process.run()
         } catch {
             throw GenerateError.signingLaunchFailed(error)
         }
-        process.waitUntilExit()
+
+        // Drain stderr while the process runs. Reading it only after exit can
+        // deadlock: a child that fills the pipe buffer blocks on write and
+        // never exits.
+        let stderrDrain = PipeDrain(fileHandle: stderrPipe.fileHandleForReading)
+        stderrDrain.start()
+
+        if exited.wait(timeout: .now() + signingTimeout) == .timedOut {
+            process.terminate()
+            if exited.wait(timeout: .now() + 2) == .timedOut {
+                kill(process.processIdentifier, SIGKILL)
+                _ = exited.wait(timeout: .now() + 2)
+            }
+            throw GenerateError.signingTimedOut
+        }
+        let stderrData = stderrDrain.wait(timeout: .now() + 2)
 
         if process.terminationStatus != 0 {
-            let stderrData = (try? stderrPipe.fileHandleForReading.readToEnd()) ?? Data()
             let stderr = String(data: stderrData, encoding: .utf8) ?? "<binary stderr>"
             throw GenerateError.signingFailed(exitCode: process.terminationStatus, stderr: stderr)
         }
 
+        let signed: Data
         do {
-            return try Data(contentsOf: signedURL)
+            signed = try Data(contentsOf: signedURL)
         } catch {
             throw GenerateError.readBackFailed(error)
         }
+
+        signedCache.insert(signed, for: cacheKey)
+        return signed
     }
 
     private static func xmlEscape(_ string: String) -> String {
@@ -186,7 +224,7 @@ enum WirelessShortcutGenerator {
                     <key>UUID</key>
                     <string>$$SCREENSHOT_UUID$$</string>
                     <key>WFGetLatestPhotoCount</key>
-                    <integer>10</integer>
+                    <integer>$$BATCH_COUNT$$</integer>
                 </dict>
             </dict>
             <dict>
@@ -327,4 +365,57 @@ enum WirelessShortcutGenerator {
     </dict>
     </plist>
     """
+}
+
+private final class SignedShortcutCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [String: Data] = [:]
+    private let limit: Int
+
+    init(limit: Int) {
+        self.limit = limit
+    }
+
+    func value(for key: String) -> Data? {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage[key]
+    }
+
+    func insert(_ data: Data, for key: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        if storage.count >= limit {
+            storage.removeAll()
+        }
+        storage[key] = data
+    }
+}
+
+private final class PipeDrain: @unchecked Sendable {
+    private let fileHandle: FileHandle
+    private let lock = NSLock()
+    private let drained = DispatchSemaphore(value: 0)
+    private var data = Data()
+
+    init(fileHandle: FileHandle) {
+        self.fileHandle = fileHandle
+    }
+
+    func start() {
+        DispatchQueue.global(qos: .utility).async { [self] in
+            let output = (try? fileHandle.readToEnd()) ?? Data()
+            lock.lock()
+            data = output
+            lock.unlock()
+            drained.signal()
+        }
+    }
+
+    func wait(timeout: DispatchTime) -> Data {
+        _ = drained.wait(timeout: timeout)
+        lock.lock()
+        defer { lock.unlock() }
+        return data
+    }
 }
