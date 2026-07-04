@@ -1,7 +1,5 @@
 # PhoneSnap
 
-[![CI](https://github.com/Aqu1bp/PhoneSnap/actions/workflows/ci.yml/badge.svg)](https://github.com/Aqu1bp/PhoneSnap/actions/workflows/ci.yml)
-
 Drag real iPhone screenshots into your coding agent.
 
 PhoneSnap is a small macOS menu bar app for AI-assisted iOS work. Plug in a trusted iPhone over USB, or run the generated iOS Shortcut over Wi-Fi, and PhoneSnap turns real device screenshots into draggable Mac thumbnails.
