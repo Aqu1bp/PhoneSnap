@@ -142,13 +142,20 @@ final class RecentFromIPhonePanelController: NSObject {
         panel.orderFrontRegardless()
     }
 
+    /// Incremental: existing thumbnails are never removed and re-added — a
+    /// full rebuild tears down the view under the cursor and cancels any
+    /// in-progress drag while a batch is still streaming in.
     func update(fileURLs: [URL]) {
-        stackView.arrangedSubviews.forEach { view in
+        emptyLabel.isHidden = !fileURLs.isEmpty
+
+        let desired = Set(fileURLs)
+        for (url, view) in itemViews where !desired.contains(url) {
             stackView.removeArrangedSubview(view)
             view.removeFromSuperview()
+            itemViews[url] = nil
         }
 
-        emptyLabel.isHidden = !fileURLs.isEmpty
+        var index = 0
         for url in fileURLs {
             let item: RecentFromIPhoneThumbnailView
             if let cached = itemViews[url] {
@@ -166,12 +173,12 @@ final class RecentFromIPhonePanelController: NSObject {
                 ])
                 itemViews[url] = item
             }
-            stackView.addArrangedSubview(item)
+            let arranged = stackView.arrangedSubviews
+            if !(arranged.indices.contains(index) && arranged[index] === item) {
+                stackView.insertArrangedSubview(item, at: min(index, arranged.count))
+            }
+            index += 1
         }
-        let live = Set(fileURLs)
-        itemViews = itemViews.filter { live.contains($0.key) }
-        scrollView.contentView.scroll(to: .zero)
-        scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 
     private static func defaultFrame(size: NSSize) -> NSRect {
