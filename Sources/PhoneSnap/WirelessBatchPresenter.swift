@@ -2,39 +2,27 @@ import AppKit
 
 @MainActor
 final class WirelessBatchPresenter {
-    private var pending: [URL] = []
-    private var debounceTimer: Timer?
+    /// Newest first. Persists across batches so the panel shows a running
+    /// "recent from iPhone" strip rather than only the last run.
+    private var items: [URL] = []
     private var panelController: RecentFromIPhonePanelController?
 
-    private static let debounceInterval: TimeInterval = 2.4
-    private static let maxBatchSize = 20
+    private static let maxItems = 20
 
+    /// Shows the panel immediately on the first upload and appends live as
+    /// the rest of the batch streams in — no debounce; waiting for the batch
+    /// to go quiet made the panel feel several seconds late.
     func enqueue(fileURL: URL) {
-        pending.append(fileURL)
-        if pending.count > Self.maxBatchSize {
-            pending.removeFirst(pending.count - Self.maxBatchSize)
+        items.insert(fileURL, at: 0)
+        if items.count > Self.maxItems {
+            items.removeLast(items.count - Self.maxItems)
         }
-        debounceTimer?.invalidate()
-        debounceTimer = Timer.scheduledTimer(withTimeInterval: Self.debounceInterval, repeats: false) { [weak self] _ in
-            Task { @MainActor in
-                self?.flush()
-            }
-        }
-    }
-
-    private func flush() {
-        debounceTimer?.invalidate()
-        debounceTimer = nil
-
-        guard !pending.isEmpty else { return }
-        let urls = pending
-        pending.removeAll()
 
         if let panelController {
-            panelController.update(fileURLs: urls)
+            panelController.update(fileURLs: items)
             panelController.show()
         } else {
-            let controller = RecentFromIPhonePanelController(fileURLs: urls) { [weak self] controller in
+            let controller = RecentFromIPhonePanelController(fileURLs: items) { [weak self] controller in
                 if self?.panelController === controller {
                     self?.panelController = nil
                 }
@@ -51,7 +39,10 @@ final class RecentFromIPhonePanelController: NSObject {
     private let scrollView = NSScrollView()
     private let stackView = NSStackView()
     private let emptyLabel = NSTextField(labelWithString: "No recent images")
+    private let hintLabel = NSTextField(labelWithString: "Drag a thumbnail into any chat  •  Click to copy  •  Double-click to open")
     private let onClosed: (RecentFromIPhonePanelController) -> Void
+    /// Cache so live batch updates reuse views instead of re-decoding images.
+    private var itemViews: [URL: RecentFromIPhoneThumbnailView] = [:]
 
     private static let panelSize = NSSize(width: 760, height: 270)
     private static let edgeInset: CGFloat = 18
@@ -113,11 +104,21 @@ final class RecentFromIPhonePanelController: NSObject {
         emptyLabel.isHidden = true
         root.addSubview(emptyLabel)
 
+        hintLabel.font = .systemFont(ofSize: 11)
+        hintLabel.textColor = .tertiaryLabelColor
+        hintLabel.alignment = .center
+        hintLabel.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(hintLabel)
+
         NSLayoutConstraint.activate([
             scrollView.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             scrollView.topAnchor.constraint(equalTo: root.topAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: hintLabel.topAnchor, constant: -4),
+
+            hintLabel.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 12),
+            hintLabel.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -12),
+            hintLabel.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -8),
 
             documentView.heightAnchor.constraint(equalTo: scrollView.contentView.heightAnchor),
             documentView.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
@@ -149,18 +150,26 @@ final class RecentFromIPhonePanelController: NSObject {
 
         emptyLabel.isHidden = !fileURLs.isEmpty
         for url in fileURLs {
-            guard let image = NSImage(contentsOf: url) else {
-                Log.error("Could not load wireless batch image at \(url.path)")
-                continue
+            let item: RecentFromIPhoneThumbnailView
+            if let cached = itemViews[url] {
+                item = cached
+            } else {
+                guard let image = NSImage(contentsOf: url) else {
+                    Log.error("Could not load wireless batch image at \(url.path)")
+                    continue
+                }
+                item = RecentFromIPhoneThumbnailView(image: image, fileURL: url, size: Self.itemSize)
+                item.translatesAutoresizingMaskIntoConstraints = false
+                NSLayoutConstraint.activate([
+                    item.widthAnchor.constraint(equalToConstant: Self.itemSize.width),
+                    item.heightAnchor.constraint(equalToConstant: Self.itemSize.height)
+                ])
+                itemViews[url] = item
             }
-            let item = RecentFromIPhoneThumbnailView(image: image, fileURL: url, size: Self.itemSize)
-            item.translatesAutoresizingMaskIntoConstraints = false
             stackView.addArrangedSubview(item)
-            NSLayoutConstraint.activate([
-                item.widthAnchor.constraint(equalToConstant: Self.itemSize.width),
-                item.heightAnchor.constraint(equalToConstant: Self.itemSize.height)
-            ])
         }
+        let live = Set(fileURLs)
+        itemViews = itemViews.filter { live.contains($0.key) }
         scrollView.contentView.scroll(to: .zero)
         scrollView.reflectScrolledClipView(scrollView.contentView)
     }
@@ -253,10 +262,38 @@ final class RecentFromIPhoneThumbnailView: NSView, NSDraggingSource {
         imageLayer.frame = imageRect()
     }
 
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways],
+            owner: self,
+            userInfo: nil
+        ))
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        layer?.borderColor = NSColor.controlAccentColor.cgColor
+        layer?.borderWidth = 2
+        NSCursor.openHand.set()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        layer?.borderColor = NSColor.separatorColor.cgColor
+        layer?.borderWidth = 1
+        NSCursor.arrow.set()
+    }
+
     override func mouseDragged(with event: NSEvent) {
         let pbItem = NSPasteboardItem()
         pbItem.setDataProvider(self, forTypes: [.fileURL])
         pbItem.setString(fileURL.absoluteString, forType: .fileURL)
+        // Also carry raw PNG bytes so drop targets that don't accept file
+        // URLs (web chat boxes, some agent UIs) still receive the image.
+        if let data = try? Data(contentsOf: fileURL) {
+            pbItem.setData(data, forType: .png)
+        }
 
         let draggingItem = NSDraggingItem(pasteboardWriter: pbItem)
         let dragSize = NSSize(width: min(140, bounds.width), height: min(120, bounds.height))

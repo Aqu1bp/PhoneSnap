@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItemController: StatusItemController!
@@ -128,8 +129,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Hashes of wireless uploads already received this session. The Shortcut
+    /// re-sends the latest 10 screenshots on every run, so without this each
+    /// run would re-save (and re-show) mostly duplicates.
+    private var seenWirelessHashes: Set<String> = []
+    private let seenWirelessHashesLock = NSLock()
+
     @discardableResult
     private func deliverWireless(data: Data) -> Bool {
+        let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        seenWirelessHashesLock.lock()
+        let isNew = seenWirelessHashes.insert(digest).inserted
+        seenWirelessHashesLock.unlock()
+        guard isNew else {
+            Log.info("Wireless upload skipped: duplicate of an image already received this session")
+            return true
+        }
         do {
             let url = try store.save(data: data)
             Log.info("Delivered via Wireless Shortcut Batch: \(url.lastPathComponent)")
