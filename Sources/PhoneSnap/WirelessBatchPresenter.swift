@@ -289,7 +289,25 @@ final class RecentFromIPhoneThumbnailView: NSView, NSDraggingSource {
         NSCursor.arrow.set()
     }
 
+    private var mouseDownLocation: NSPoint?
+    private var dragSessionActive = false
+
+    override func mouseDown(with event: NSEvent) {
+        mouseDownLocation = event.locationInWindow
+        dragSessionActive = false
+    }
+
     override func mouseDragged(with event: NSEvent) {
+        // Start exactly one drag session per gesture, and only after the
+        // cursor has actually moved — beginning a session on every drag
+        // event made drags flaky and turned click jitter into failed drags.
+        guard !dragSessionActive else { return }
+        guard let down = mouseDownLocation else { return }
+        let dx = event.locationInWindow.x - down.x
+        let dy = event.locationInWindow.y - down.y
+        guard dx * dx + dy * dy >= 9 else { return }
+        dragSessionActive = true
+
         let pbItem = NSPasteboardItem()
         pbItem.setDataProvider(self, forTypes: [.fileURL])
         pbItem.setString(fileURL.absoluteString, forType: .fileURL)
@@ -312,7 +330,14 @@ final class RecentFromIPhoneThumbnailView: NSView, NSDraggingSource {
         beginDraggingSession(with: [draggingItem], event: event, source: self)
     }
 
+    func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        dragSessionActive = false
+        mouseDownLocation = nil
+    }
+
     override func mouseUp(with event: NSEvent) {
+        mouseDownLocation = nil
+        if dragSessionActive { dragSessionActive = false; return }
         if event.clickCount >= 2 {
             NSWorkspace.shared.open(fileURL)
         } else {
