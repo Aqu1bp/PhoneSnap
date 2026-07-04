@@ -56,5 +56,19 @@ is the executable name instead — remove the matching
 
 ## Reporting a vulnerability
 
-Open a GitHub issue, or if the report is sensitive, contact the maintainer
-directly through their GitHub profile rather than filing a public issue.
+Please do not open a public issue for security-sensitive reports.
+
+Use GitHub private vulnerability reporting:
+
+<https://github.com/Aqu1bp/PhoneSnap/security/advisories/new>
+
+Expected response:
+
+- Acknowledgement within 7 days.
+- Status update within 30 days, even if the fix is still in progress.
+- Public disclosure after a fix is available, unless the reporter and
+  maintainer agree that a different timeline is safer.
+
+If GitHub's private reporting flow is unavailable, contact the maintainer
+through their GitHub profile and include only enough detail to establish a
+private channel.
