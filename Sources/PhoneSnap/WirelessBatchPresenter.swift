@@ -264,6 +264,7 @@ final class RecentFromIPhoneThumbnailView: NSView, NSDraggingSource {
     override func layout() {
         super.layout()
         imageLayer.frame = imageRect()
+        setHovered(mouseIsInside())
     }
 
     override func updateTrackingAreas() {
@@ -278,15 +279,29 @@ final class RecentFromIPhoneThumbnailView: NSView, NSDraggingSource {
     }
 
     override func mouseEntered(with event: NSEvent) {
-        layer?.borderColor = NSColor.controlAccentColor.cgColor
-        layer?.borderWidth = 2
-        NSCursor.openHand.set()
+        setHovered(mouseIsInside())
     }
 
     override func mouseExited(with event: NSEvent) {
-        layer?.borderColor = NSColor.separatorColor.cgColor
-        layer?.borderWidth = 1
-        NSCursor.arrow.set()
+        setHovered(false)
+    }
+
+    /// Views shift under a stationary cursor as new thumbnails stream in, so
+    /// enter/exit events alone leave stale highlights — recheck on layout.
+    private func mouseIsInside() -> Bool {
+        guard let window else { return false }
+        let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        return bounds.contains(point)
+    }
+
+    private var isHovered = false
+
+    private func setHovered(_ hovered: Bool) {
+        guard hovered != isHovered else { return }
+        isHovered = hovered
+        layer?.borderColor = hovered ? NSColor.controlAccentColor.cgColor : NSColor.separatorColor.cgColor
+        layer?.borderWidth = hovered ? 2 : 1
+        if hovered { NSCursor.openHand.set() } else { NSCursor.arrow.set() }
     }
 
     private var mouseDownLocation: NSPoint?
