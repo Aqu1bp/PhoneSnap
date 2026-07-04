@@ -1,0 +1,50 @@
+name: Bug report
+description: Report something that is broken or confusing in PhoneSnap.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the behavior you saw and what you expected instead.
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Capture mode
+      options:
+        - Wired USB
+        - Wireless Shortcut
+        - Build/install
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open PhoneSnap...
+        2. Take a screenshot...
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: "Example: macOS 15.5"
+  - type: input
+    id: ios
+    attributes:
+      label: iPhone/iPadOS version
+      placeholder: "Example: iOS 18.5"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Paste relevant terminal logs from `swift run PhoneSnap` or attach screenshots if they help. Remove anything sensitive first.
+      render: text

@@ -1,0 +1,37 @@
+name: Feature request
+description: Suggest a focused improvement for PhoneSnap.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What workflow is hard, slow, or missing today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the smallest change that would make the workflow better.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Wired USB capture
+        - Wireless Shortcut
+        - Thumbnail UI
+        - Packaging/install
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Add links, examples, or constraints that would help someone evaluate the idea.

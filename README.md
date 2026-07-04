@@ -38,6 +38,12 @@ USB is the primary path because macOS exposes a trusted plugged-in iPhone as a c
 
 ## Quick Start
 
+Download the latest `PhoneSnap.zip` from [Releases](https://github.com/Aqu1bp/PhoneSnap/releases/latest), unzip it, then open `PhoneSnap.app`.
+
+PhoneSnap is not notarized yet, so macOS may block the first launch. If that happens, right-click `PhoneSnap.app`, choose **Open**, then confirm.
+
+To build from source instead:
+
 ```bash
 git clone https://github.com/Aqu1bp/PhoneSnap.git
 cd PhoneSnap
@@ -182,6 +188,7 @@ iPhone over Wi-Fi experimental
 
 ```text
 PhoneSnap/
+├── .github/                       CI, issue templates, repo automation
 ├── docs/                          architecture, research notes, test plan
 ├── senders/                       debug embedded sender references
 │   ├── apple-ios                  native UIKit Swift Package
@@ -207,7 +214,8 @@ PhoneSnap/
 ├── scripts/build-app.sh           wraps the SwiftPM binary into PhoneSnap.app
 ├── scripts/smoke-test.sh          wireless receiver smoke test used by CI
 ├── Package.swift
-└── README.md
+├── README.md
+└── ROADMAP.md
 ```
 
 ## Security
@@ -216,7 +224,7 @@ Wireless mode runs a plain-HTTP receiver on your LAN, protected by a random pair
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [ROADMAP.md](ROADMAP.md). Small, focused PRs that improve reliability around real-device capture are especially useful.
 
 ## License
 
