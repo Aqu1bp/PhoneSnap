@@ -257,6 +257,10 @@ final class RecentFromIPhoneThumbnailView: NSView, NSDraggingSource {
 
     required init?(coder: NSCoder) { fatalError("not supported") }
 
+    /// The panel moves when dragged by its background; a drag that starts on
+    /// a thumbnail must start an image drag instead of moving the window.
+    override var mouseDownCanMoveWindow: Bool { false }
+
     override func layout() {
         super.layout()
         imageLayer.frame = imageRect()
