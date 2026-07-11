@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Net.NetworkInformation;
+using System.Runtime.InteropServices;
 using PhoneSnap.Core.Delivery;
 using PhoneSnap.Core.Images;
 using PhoneSnap.Core.Pairing;
@@ -40,7 +42,6 @@ internal sealed class PhoneSnapApplicationContext : ApplicationContext
             {
                 Port = _configuration.Port,
                 AdvertisedHost = _configuration.AdvertisedHost,
-                MaximumPixelCount = (int)maximumPixels,
             },
             pairing,
             _imageStore);
@@ -78,6 +79,7 @@ internal sealed class PhoneSnapApplicationContext : ApplicationContext
 
         _receiver.StateChanged += ReceiverStateChanged;
         _receiver.UploadDelivered += UploadDelivered;
+        NetworkChange.NetworkAddressChanged += NetworkAddressChanged;
         _ = StartReceiverAsync();
     }
 
@@ -87,6 +89,7 @@ internal sealed class PhoneSnapApplicationContext : ApplicationContext
         {
             _disposed = true;
             _trayIcon.Visible = false;
+            NetworkChange.NetworkAddressChanged -= NetworkAddressChanged;
             _receiver.StateChanged -= ReceiverStateChanged;
             _receiver.UploadDelivered -= UploadDelivered;
             _receiver.DisposeAsync().AsTask().GetAwaiter().GetResult();
@@ -118,21 +121,46 @@ internal sealed class PhoneSnapApplicationContext : ApplicationContext
 
     private void ReceiverStateChanged(object? sender, ReceiverStateChangedEventArgs eventArgs)
     {
-        OnUi(() =>
+        OnUi(() => UpdateReceiverUi(eventArgs.State));
+    }
+
+    private void NetworkAddressChanged(object? sender, EventArgs eventArgs)
+    {
+        RefreshAdvertisedAddress();
+    }
+
+    private void RefreshAdvertisedAddress()
+    {
+        string? host;
+        try
         {
-            _statusItem.Text = eventArgs.State.Activity switch
-            {
-                ReceiverActivity.Starting => "Receiver: starting",
-                ReceiverActivity.Ready => $"Receiver: ready on {_receiver.BaseUri}",
-                ReceiverActivity.Failed => $"Receiver unavailable: {eventArgs.State.Error}",
-                _ => "Receiver: stopped",
-            };
-            _setupItem.Enabled = eventArgs.State.Activity == ReceiverActivity.Ready;
-            if (_setupForm is { IsDisposed: false })
-            {
-                _setupForm.SetSetupUri(_receiver.SetupUri);
-            }
-        });
+            host = LanAddressProvider.GetPreferredIPv4()?.ToString();
+        }
+        catch (NetworkInformationException)
+        {
+            host = null;
+        }
+
+        _receiver.UpdateAdvertisedHost(host);
+        OnUi(() => UpdateReceiverUi(_receiver.State));
+    }
+
+    private void UpdateReceiverUi(ReceiverState state)
+    {
+        var setupUri = _receiver.SetupUri;
+        _statusItem.Text = state.Activity switch
+        {
+            ReceiverActivity.Starting => "Receiver: starting",
+            ReceiverActivity.Ready when setupUri is not null => $"Receiver: ready on {_receiver.BaseUri}",
+            ReceiverActivity.Ready => "Receiver: ready; connect this PC to a LAN",
+            ReceiverActivity.Failed => $"Receiver unavailable: {state.Error}",
+            _ => "Receiver: stopped",
+        };
+        _setupItem.Enabled = state.Activity == ReceiverActivity.Ready && setupUri is not null;
+        if (_setupForm is { IsDisposed: false })
+        {
+            _setupForm.SetSetupUri(setupUri);
+        }
     }
 
     private void UploadDelivered(object? sender, UploadDeliveredEventArgs eventArgs)
@@ -141,28 +169,56 @@ internal sealed class PhoneSnapApplicationContext : ApplicationContext
         {
             _lastFilePath = eventArgs.Image.FilePath;
             _showLastItem.Enabled = true;
+            var clipboardUpdated = false;
             try
             {
-                ClipboardWriter.WriteImageAndFile(eventArgs.Image.FilePath);
+                clipboardUpdated = ClipboardWriter.WriteImageAndFile(eventArgs.Image.FilePath);
             }
-            catch (Exception exception) when (exception is ArgumentException or IOException)
+            catch (Exception exception) when (exception is ArgumentException or
+                                                        IOException or
+                                                        ExternalException or
+                                                        OutOfMemoryException)
             {
-                _trayIcon.ShowBalloonTip(3000, "Screenshot saved", "The Windows clipboard could not be updated.", ToolTipIcon.Warning);
+                clipboardUpdated = false;
             }
-            _recentImagesForm ??= new RecentImagesForm();
-            _recentImagesForm.AddImage(eventArgs.Image.FilePath);
+
+            var previewUpdated = false;
+            try
+            {
+                _recentImagesForm ??= new RecentImagesForm();
+                _recentImagesForm.AddImage(eventArgs.Image.FilePath);
+                previewUpdated = true;
+            }
+            catch (Exception exception) when (exception is ArgumentException or IOException or ExternalException or OutOfMemoryException)
+            {
+                previewUpdated = false;
+            }
+
+            var result = (clipboardUpdated, previewUpdated) switch
+            {
+                (true, true) => Path.GetFileName(eventArgs.Image.FilePath),
+                (false, true) => $"{Path.GetFileName(eventArgs.Image.FilePath)} saved; the clipboard is busy.",
+                (true, false) => $"{Path.GetFileName(eventArgs.Image.FilePath)} saved; its preview could not be shown.",
+                _ => $"{Path.GetFileName(eventArgs.Image.FilePath)} saved; clipboard and preview updates failed.",
+            };
             _trayIcon.ShowBalloonTip(
-                3000,
+                4000,
                 "Screenshot received",
-                Path.GetFileName(eventArgs.Image.FilePath),
-                ToolTipIcon.Info);
+                result,
+                clipboardUpdated && previewUpdated ? ToolTipIcon.Info : ToolTipIcon.Warning);
         });
     }
 
     private void ShowSetup()
     {
+        RefreshAdvertisedAddress();
         if (_receiver.SetupUri is null)
         {
+            _trayIcon.ShowBalloonTip(
+                4000,
+                "No reachable LAN address",
+                "Connect this PC to the same private network as the iPhone, then try again.",
+                ToolTipIcon.Warning);
             return;
         }
 
@@ -179,12 +235,23 @@ internal sealed class PhoneSnapApplicationContext : ApplicationContext
     {
         if (_lastFilePath is not null && File.Exists(_lastFilePath))
         {
-            _recentImagesForm ??= new RecentImagesForm();
-            if (!_recentImagesForm.HasImages)
+            try
             {
-                _recentImagesForm.AddImage(_lastFilePath);
+                _recentImagesForm ??= new RecentImagesForm();
+                if (!_recentImagesForm.HasImages)
+                {
+                    _recentImagesForm.AddImage(_lastFilePath);
+                }
+                _recentImagesForm.ShowRecent();
             }
-            _recentImagesForm.ShowRecent();
+            catch (Exception exception) when (exception is ArgumentException or IOException or ExternalException or OutOfMemoryException)
+            {
+                _trayIcon.ShowBalloonTip(
+                    4000,
+                    "Preview unavailable",
+                    "The screenshot remains saved and can be opened from the save folder.",
+                    ToolTipIcon.Warning);
+            }
         }
     }
 
@@ -210,7 +277,14 @@ internal sealed class PhoneSnapApplicationContext : ApplicationContext
 
         if (_dispatcher.InvokeRequired)
         {
-            _dispatcher.BeginInvoke(action);
+            try
+            {
+                _dispatcher.BeginInvoke(action);
+            }
+            catch (InvalidOperationException) when (_dispatcher.IsDisposed || _disposed)
+            {
+                // Shutdown won the race with a background receiver/network event.
+            }
         }
         else
         {

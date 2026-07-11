@@ -25,7 +25,13 @@ public sealed class ReceiverServer : IAsyncDisposable
     private readonly PairingCredentials _pairing;
     private readonly IImageStore _imageStore;
     private readonly SemaphoreSlim _processingGate = new(1, 1);
+    private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
+    private readonly object _addressGate = new();
     private WebApplication? _application;
+    private string? _advertisedHost;
+    private Uri? _baseUri;
+    private int _boundPort;
+    private bool _disposed;
 
     public ReceiverServer(ReceiverOptions options, PairingCredentials pairing, IImageStore imageStore)
     {
@@ -33,6 +39,11 @@ public sealed class ReceiverServer : IAsyncDisposable
         _options.Validate();
         _pairing = pairing ?? throw new ArgumentNullException(nameof(pairing));
         _imageStore = imageStore ?? throw new ArgumentNullException(nameof(imageStore));
+        _advertisedHost = options.AdvertisedHost;
+        if (_advertisedHost is not null)
+        {
+            _ = BuildBaseUri(_advertisedHost, 1);
+        }
     }
 
     public event EventHandler<UploadDeliveredEventArgs>? UploadDelivered;
@@ -41,15 +52,113 @@ public sealed class ReceiverServer : IAsyncDisposable
 
     public ReceiverState State { get; private set; } = ReceiverState.Stopped;
 
-    public int BoundPort { get; private set; }
+    public int BoundPort
+    {
+        get
+        {
+            lock (_addressGate)
+            {
+                return _boundPort;
+            }
+        }
+    }
 
-    public Uri? BaseUri { get; private set; }
+    public Uri? BaseUri
+    {
+        get
+        {
+            lock (_addressGate)
+            {
+                return _baseUri;
+            }
+        }
+    }
 
-    public Uri? SetupUri => BaseUri is null ? null : new Uri(BaseUri, $"pair/{_pairing.PairId}");
+    public Uri? SetupUri
+    {
+        get
+        {
+            var baseUri = BaseUri;
+            return baseUri is null ? null : new Uri(baseUri, $"pair/{_pairing.PairId}");
+        }
+    }
 
-    public Uri? UploadUri => BaseUri is null ? null : new Uri(BaseUri, $"api/v1/upload/{_pairing.PairId}");
+    public Uri? UploadUri
+    {
+        get
+        {
+            var baseUri = BaseUri;
+            return baseUri is null ? null : new Uri(baseUri, $"api/v1/upload/{_pairing.PairId}");
+        }
+    }
 
     public async Task StartAsync(CancellationToken cancellationToken = default)
+    {
+        await _lifecycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            await StartCoreAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _lifecycleGate.Release();
+        }
+    }
+
+    public async Task StopAsync(CancellationToken cancellationToken = default)
+    {
+        await _lifecycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await StopCoreAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _lifecycleGate.Release();
+        }
+    }
+
+    public void UpdateAdvertisedHost(string? advertisedHost)
+    {
+        if (advertisedHost is not null)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(advertisedHost);
+            _ = BuildBaseUri(advertisedHost, 1);
+        }
+
+        lock (_addressGate)
+        {
+            _advertisedHost = advertisedHost;
+            _baseUri = advertisedHost is null || _boundPort == 0
+                ? null
+                : BuildBaseUri(advertisedHost, _boundPort);
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await _lifecycleGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            await StopCoreAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        finally
+        {
+            _lifecycleGate.Release();
+        }
+
+        _processingGate.Dispose();
+        GC.SuppressFinalize(this);
+    }
+
+    private async Task StartCoreAsync(CancellationToken cancellationToken)
     {
         if (_application is not null)
         {
@@ -90,22 +199,23 @@ public sealed class ReceiverServer : IAsyncDisposable
         try
         {
             await application.StartAsync(cancellationToken).ConfigureAwait(false);
-            BoundPort = ResolveBoundPort(application);
-            BaseUri = BuildBaseUri(_options.AdvertisedHost, BoundPort);
+            SetBoundPort(ResolveBoundPort(application));
             _application = application;
             ChangeState(new ReceiverState(ReceiverActivity.Ready));
         }
         catch (Exception exception)
         {
+            SetBoundPort(0);
             ChangeState(new ReceiverState(ReceiverActivity.Failed, exception.Message));
             await application.DisposeAsync().ConfigureAwait(false);
             throw;
         }
     }
 
-    public async Task StopAsync(CancellationToken cancellationToken = default)
+    private async Task StopCoreAsync(CancellationToken cancellationToken)
     {
-        var application = Interlocked.Exchange(ref _application, null);
+        var application = _application;
+        _application = null;
         if (application is null)
         {
             return;
@@ -117,18 +227,16 @@ public sealed class ReceiverServer : IAsyncDisposable
         }
         finally
         {
-            await application.DisposeAsync().ConfigureAwait(false);
-            BaseUri = null;
-            BoundPort = 0;
-            ChangeState(ReceiverState.Stopped);
+            try
+            {
+                await application.DisposeAsync().ConfigureAwait(false);
+            }
+            finally
+            {
+                SetBoundPort(0);
+                ChangeState(ReceiverState.Stopped);
+            }
         }
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        await StopAsync().ConfigureAwait(false);
-        _processingGate.Dispose();
-        GC.SuppressFinalize(this);
     }
 
     private async Task HandleRequestAsync(HttpContext context)
@@ -150,7 +258,7 @@ public sealed class ReceiverServer : IAsyncDisposable
             var uploadUri = UploadUri;
             if (uploadUri is null)
             {
-                await WriteTextAsync(context, StatusCodes.Status503ServiceUnavailable, "receiver is starting").ConfigureAwait(false);
+                await WriteTextAsync(context, StatusCodes.Status503ServiceUnavailable, "receiver has no reachable LAN address").ConfigureAwait(false);
                 return;
             }
 
@@ -216,44 +324,43 @@ public sealed class ReceiverServer : IAsyncDisposable
             return;
         }
 
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
+        timeout.CancelAfter(_options.RequestTimeout);
+
         byte[] imageBytes;
-        using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted))
+        try
         {
-            timeout.CancelAfter(_options.RequestTimeout);
-            try
-            {
-                imageBytes = await ExtractImageAsync(context.Request, contentLength, timeout.Token).ConfigureAwait(false);
-            }
-            catch (UploadFormatException exception)
-            {
-                await WriteTextAsync(context, exception.StatusCode, exception.Message).ConfigureAwait(false);
-                return;
-            }
-            catch (Microsoft.AspNetCore.Http.BadHttpRequestException exception)
-                when (exception.StatusCode == StatusCodes.Status413PayloadTooLarge)
-            {
-                await WriteTextAsync(context, StatusCodes.Status413PayloadTooLarge, "payload too large").ConfigureAwait(false);
-                return;
-            }
-            catch (InvalidDataException)
-            {
-                await WriteTextAsync(context, StatusCodes.Status400BadRequest, "malformed request body").ConfigureAwait(false);
-                return;
-            }
-            catch (OperationCanceledException) when (!context.RequestAborted.IsCancellationRequested)
-            {
-                await WriteTextAsync(context, StatusCodes.Status408RequestTimeout, "request timed out").ConfigureAwait(false);
-                return;
-            }
+            imageBytes = await ExtractImageAsync(context.Request, contentLength, timeout.Token).ConfigureAwait(false);
+        }
+        catch (UploadFormatException exception)
+        {
+            await WriteTextAsync(context, exception.StatusCode, exception.Message).ConfigureAwait(false);
+            return;
+        }
+        catch (Microsoft.AspNetCore.Http.BadHttpRequestException exception)
+            when (exception.StatusCode == StatusCodes.Status413PayloadTooLarge)
+        {
+            await WriteTextAsync(context, StatusCodes.Status413PayloadTooLarge, "payload too large").ConfigureAwait(false);
+            return;
+        }
+        catch (InvalidDataException)
+        {
+            await WriteTextAsync(context, StatusCodes.Status400BadRequest, "malformed request body").ConfigureAwait(false);
+            return;
+        }
+        catch (OperationCanceledException) when (!context.RequestAborted.IsCancellationRequested)
+        {
+            await WriteTextAsync(context, StatusCodes.Status408RequestTimeout, "request timed out").ConfigureAwait(false);
+            return;
         }
 
         SavedImage savedImage;
         try
         {
-            await _processingGate.WaitAsync(context.RequestAborted).ConfigureAwait(false);
+            await _processingGate.WaitAsync(timeout.Token).ConfigureAwait(false);
             try
             {
-                savedImage = await _imageStore.SaveAsync(imageBytes, context.RequestAborted).ConfigureAwait(false);
+                savedImage = await _imageStore.SaveAsync(imageBytes, timeout.Token).ConfigureAwait(false);
             }
             finally
             {
@@ -269,6 +376,11 @@ public sealed class ReceiverServer : IAsyncDisposable
         {
             return;
         }
+        catch (OperationCanceledException)
+        {
+            await WriteTextAsync(context, StatusCodes.Status408RequestTimeout, "request timed out").ConfigureAwait(false);
+            return;
+        }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
             await WriteTextAsync(context, StatusCodes.Status500InternalServerError, "could not store image").ConfigureAwait(false);
@@ -278,8 +390,19 @@ public sealed class ReceiverServer : IAsyncDisposable
         context.Response.StatusCode = StatusCodes.Status200OK;
         context.Response.ContentType = "application/json; charset=utf-8";
         var response = JsonSerializer.Serialize(new UploadResponse(true, imageBytes.Length));
-        await context.Response.WriteAsync(response, context.RequestAborted).ConfigureAwait(false);
         RaiseUploadDelivered(new UploadDeliveredEventArgs(savedImage, imageBytes.Length));
+        try
+        {
+            await context.Response.WriteAsync(response, context.RequestAborted).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+        {
+            // The file is already committed and surfaced locally.
+        }
+        catch (IOException)
+        {
+            // The response transport failed after a successful local delivery.
+        }
     }
 
     private async Task<byte[]> ExtractImageAsync(HttpRequest request, long contentLength, CancellationToken cancellationToken)
@@ -445,6 +568,17 @@ public sealed class ReceiverServer : IAsyncDisposable
         }
 
         return uri.Port;
+    }
+
+    private void SetBoundPort(int port)
+    {
+        lock (_addressGate)
+        {
+            _boundPort = port;
+            _baseUri = port == 0 || _advertisedHost is null
+                ? null
+                : BuildBaseUri(_advertisedHost, port);
+        }
     }
 
     private static Uri BuildBaseUri(string host, int port)

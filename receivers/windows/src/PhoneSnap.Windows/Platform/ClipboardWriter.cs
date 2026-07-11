@@ -4,7 +4,7 @@ namespace PhoneSnap.Windows.Platform;
 
 internal static class ClipboardWriter
 {
-    public static void WriteImageAndFile(string filePath)
+    public static bool WriteImageAndFile(string filePath)
     {
         var pngBytes = File.ReadAllBytes(filePath);
         using var imageStream = new MemoryStream(pngBytes, writable: false);
@@ -20,10 +20,12 @@ internal static class ClipboardWriter
         try
         {
             Clipboard.SetDataObject(data, copy: true, retryTimes: 5, retryDelay: 100);
+            return true;
         }
         catch (ExternalException)
         {
             // Another process may hold the clipboard. The image remains saved.
+            return false;
         }
     }
 }

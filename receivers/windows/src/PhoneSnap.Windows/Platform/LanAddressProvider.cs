@@ -6,7 +6,7 @@ namespace PhoneSnap.Windows.Platform;
 
 internal static class LanAddressProvider
 {
-    public static IPAddress GetPreferredIPv4()
+    public static IPAddress? GetPreferredIPv4()
     {
         var candidates = NetworkInterface.GetAllNetworkInterfaces()
             .Where(network => network.OperationalStatus == OperationalStatus.Up &&
@@ -24,8 +24,7 @@ internal static class LanAddressProvider
             })
             .OrderByDescending(candidate => candidate.HasGateway);
 
-        return candidates.SelectMany(candidate => candidate.Addresses).FirstOrDefault()
-            ?? IPAddress.Loopback;
+        return candidates.SelectMany(candidate => candidate.Addresses).FirstOrDefault();
     }
 
     private static bool IsUsableIPv4(IPAddress address)

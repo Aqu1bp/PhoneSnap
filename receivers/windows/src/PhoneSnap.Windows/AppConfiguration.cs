@@ -6,7 +6,7 @@ internal sealed record AppConfiguration(
     int Port,
     string SaveFolder,
     string PairingPath,
-    string AdvertisedHost)
+    string? AdvertisedHost)
 {
     public static AppConfiguration Load()
     {
@@ -31,6 +31,6 @@ internal sealed record AppConfiguration(
             port,
             Path.GetFullPath(saveFolder),
             pairingPath,
-            LanAddressProvider.GetPreferredIPv4().ToString());
+            LanAddressProvider.GetPreferredIPv4()?.ToString());
     }
 }

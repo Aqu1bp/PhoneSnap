@@ -56,6 +56,9 @@ public sealed class ReceiverServerTests : IAsyncLifetime, IDisposable
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Contains("type=\"file\" multiple accept=\"image/*\"", html, StringComparison.Ordinal);
         Assert.Contains("new FormData()", html, StringComparison.Ordinal);
+        Assert.Contains("file.size > maximumUploadBytes", html, StringComparison.Ordinal);
+        Assert.Contains("32 MiB upload limit", html, StringComparison.Ordinal);
+        Assert.Contains($"const endpoint = \"/api/v1/upload/{PairId}\";", html, StringComparison.Ordinal);
         Assert.Contains(Token, html, StringComparison.Ordinal);
         Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
         Assert.Contains("script-src 'nonce-", Header(response, "Content-Security-Policy"), StringComparison.Ordinal);
@@ -166,6 +169,35 @@ public sealed class ReceiverServerTests : IAsyncLifetime, IDisposable
         Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
         Assert.Equal(HttpStatusCode.MethodNotAllowed, wrongMethod.StatusCode);
         Assert.Contains("POST", wrongMethod.Content.Headers.Allow);
+    }
+
+    [Fact]
+    public async Task ProcessingDeadlineReturnsTimeoutWithoutDelivery()
+    {
+        var store = new BlockingImageStore();
+        await using var receiver = new ReceiverServer(
+            new ReceiverOptions
+            {
+                ListenAddress = IPAddress.Loopback,
+                Port = 0,
+                AdvertisedHost = "127.0.0.1",
+                RequestTimeout = TimeSpan.FromMilliseconds(250),
+            },
+            new PairingCredentials(PairId, Token),
+            store);
+        var delivered = false;
+        receiver.UploadDelivered += (_, _) => delivered = true;
+        await receiver.StartAsync();
+        using var client = new HttpClient { BaseAddress = receiver.BaseUri };
+        using var request = AuthorizedPost();
+        request.Content = new ByteArrayContent(TestPng.OneByOne);
+        request.Content.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.RequestTimeout, response.StatusCode);
+        Assert.True(store.Started.Task.IsCompletedSuccessfully);
+        Assert.False(delivered);
     }
 
     private ReceiverServer Server => _server ?? throw new InvalidOperationException("Test server not initialized.");

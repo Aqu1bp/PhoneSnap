@@ -10,11 +10,9 @@ public sealed record ReceiverOptions
 
     public int Port { get; init; } = 8472;
 
-    public string AdvertisedHost { get; init; } = "127.0.0.1";
+    public string? AdvertisedHost { get; init; }
 
     public int MaximumBodyBytes { get; init; } = ProtocolMaximumBodyBytes;
-
-    public int MaximumPixelCount { get; init; } = 50_000_000;
 
     public TimeSpan HeaderTimeout { get; init; } = TimeSpan.FromSeconds(5);
 
@@ -27,7 +25,10 @@ public sealed record ReceiverOptions
     internal void Validate()
     {
         ArgumentNullException.ThrowIfNull(ListenAddress);
-        ArgumentException.ThrowIfNullOrWhiteSpace(AdvertisedHost);
+        if (AdvertisedHost is not null)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(AdvertisedHost);
+        }
         if (Port is < 0 or > 65_535)
         {
             throw new ArgumentOutOfRangeException(nameof(Port));
@@ -36,11 +37,6 @@ public sealed record ReceiverOptions
         if (MaximumBodyBytes is <= 0 or > ProtocolMaximumBodyBytes)
         {
             throw new ArgumentOutOfRangeException(nameof(MaximumBodyBytes));
-        }
-
-        if (MaximumPixelCount <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(MaximumPixelCount));
         }
 
         if (HeaderTimeout <= TimeSpan.Zero)

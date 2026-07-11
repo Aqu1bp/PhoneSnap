@@ -1,10 +1,14 @@
 using System.Diagnostics;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 
 namespace PhoneSnap.Windows.UI;
 
 internal sealed class RecentImagesForm : Form
 {
     private const int MaximumItems = 20;
+    private const int MaximumThumbnailWidth = 300;
+    private const int MaximumThumbnailHeight = 310;
     private readonly FlowLayoutPanel _images = new()
     {
         Dock = DockStyle.Fill,
@@ -89,15 +93,38 @@ internal sealed class RecentImagesForm : Form
             AccessibleName = $"Drag {Path.GetFileName(filePath)}",
             Image = LoadDetachedImage(filePath),
         };
+        Point? dragStart = null;
         picture.MouseDown += (_, eventArgs) =>
         {
             if (eventArgs.Button == MouseButtons.Left)
             {
-                var data = new DataObject();
-                data.SetData(DataFormats.FileDrop, autoConvert: true, new[] { filePath });
-                picture.DoDragDrop(data, DragDropEffects.Copy);
+                dragStart = eventArgs.Location;
             }
         };
+        picture.MouseMove += (_, eventArgs) =>
+        {
+            if (eventArgs.Button != MouseButtons.Left || dragStart is not { } origin)
+            {
+                return;
+            }
+
+            var dragSize = SystemInformation.DragSize;
+            var dragBounds = new Rectangle(
+                origin.X - dragSize.Width / 2,
+                origin.Y - dragSize.Height / 2,
+                dragSize.Width,
+                dragSize.Height);
+            if (dragBounds.Contains(eventArgs.Location))
+            {
+                return;
+            }
+
+            dragStart = null;
+            var data = new DataObject();
+            data.SetData(DataFormats.FileDrop, autoConvert: true, new[] { filePath });
+            picture.DoDragDrop(data, DragDropEffects.Copy);
+        };
+        picture.MouseUp += (_, _) => dragStart = null;
         picture.DoubleClick += (_, _) => OpenFile(filePath);
 
         var label = new Label
@@ -125,7 +152,29 @@ internal sealed class RecentImagesForm : Form
     {
         using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
         using var source = Image.FromStream(stream, useEmbeddedColorManagement: false, validateImageData: true);
-        return new Bitmap(source);
+        var scale = Math.Min(
+            1d,
+            Math.Min(
+                MaximumThumbnailWidth / (double)source.Width,
+                MaximumThumbnailHeight / (double)source.Height));
+        var width = Math.Max(1, (int)Math.Round(source.Width * scale));
+        var height = Math.Max(1, (int)Math.Round(source.Height * scale));
+        var thumbnail = new Bitmap(width, height, PixelFormat.Format32bppPArgb);
+        try
+        {
+            using var graphics = Graphics.FromImage(thumbnail);
+            graphics.CompositingMode = CompositingMode.SourceCopy;
+            graphics.CompositingQuality = CompositingQuality.HighQuality;
+            graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+            graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+            graphics.DrawImage(source, new Rectangle(0, 0, width, height));
+            return thumbnail;
+        }
+        catch
+        {
+            thumbnail.Dispose();
+            throw;
+        }
     }
 
     private static void DisposeCard(Control card)

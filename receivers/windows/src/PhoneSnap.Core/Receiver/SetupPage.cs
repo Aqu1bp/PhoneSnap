@@ -12,7 +12,7 @@ internal static class SetupPage
     public static SetupPageDocument Render(Uri uploadUri, PairingCredentials pairing)
     {
         var endpointText = WebUtility.HtmlEncode(uploadUri.AbsoluteUri);
-        var endpointJson = JsonSerializer.Serialize(uploadUri.AbsoluteUri);
+        var endpointJson = JsonSerializer.Serialize(uploadUri.PathAndQuery);
         var tokenJson = JsonSerializer.Serialize(pairing.Token);
         var nonce = Convert.ToBase64String(RandomNumberGenerator.GetBytes(18));
         var contentSecurityPolicy =
@@ -59,6 +59,7 @@ internal static class SetupPage
                   const upload = document.getElementById('upload');
                   const progress = document.getElementById('progress');
                   const status = document.getElementById('status');
+                  const maximumUploadBytes = 32 * 1024 * 1024;
 
                   files.addEventListener('change', () => {
                     upload.disabled = files.files.length === 0;
@@ -73,6 +74,13 @@ internal static class SetupPage
                   }
 
                   async function asPng(file) {
+                    if (file.size === 0) {
+                      throw new Error(`${file.name} is empty.`);
+                    }
+                    if (file.size > maximumUploadBytes) {
+                      throw new Error(`${file.name} exceeds PhoneSnap's 32 MiB upload limit.`);
+                    }
+
                     if (file.type.toLowerCase() === 'image/png') {
                       return new File([file], pngName(file.name), { type: 'image/png' });
                     }

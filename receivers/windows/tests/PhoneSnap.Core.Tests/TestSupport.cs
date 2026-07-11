@@ -39,6 +39,18 @@ internal sealed class TestSecretProtector : ISecretProtector
     }
 }
 
+internal sealed class BlockingImageStore : IImageStore
+{
+    public TaskCompletionSource<bool> Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public async Task<SavedImage> SaveAsync(ReadOnlyMemory<byte> encodedImage, CancellationToken cancellationToken)
+    {
+        Started.TrySetResult(true);
+        await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+        throw new InvalidOperationException("The cancellation-aware test store unexpectedly completed.");
+    }
+}
+
 internal sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
 {
     public override TimeZoneInfo LocalTimeZone => TimeZoneInfo.Utc;
