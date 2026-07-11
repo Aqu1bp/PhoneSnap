@@ -1,8 +1,8 @@
 # PhoneSnap for Windows
 
-PhoneSnap for Windows is a Windows 11 tray receiver for the stable local
-upload protocol in [`docs/PROTOCOL.md`](../../docs/PROTOCOL.md). The supported
-iPhone workflow in this milestone is explicit and local:
+PhoneSnap for Windows is a hardware-unverified Windows 11 beta receiver for the
+stable local upload protocol in [`docs/PROTOCOL.md`](../../docs/PROTOCOL.md).
+The implemented iPhone workflow in this milestone is explicit and local:
 
 1. Start `PhoneSnap.Windows.exe`.
 2. Allow it through Windows Firewall on **Private networks only** if prompted.
@@ -14,20 +14,26 @@ Each accepted image is decoded and normalized to PNG, saved under
 `Pictures\PhoneSnap`, placed on the Windows clipboard as both an image and a
 file, and added to a topmost draggable recent-images panel.
 
-This is not automatic USB capture and it does not install an iOS Shortcut.
+The portable tests and both RID cross-builds pass on the macOS development
+host, but the physical Windows+iPhone checklist has not run yet, so this is not
+a supported release claim. It is also not automatic USB capture and it does
+not install an iOS Shortcut.
 See [`WINDOWS_RESEARCH.md`](../../docs/WINDOWS_RESEARCH.md) and the
 [`WpdProbe`](../../tools/windows/WpdProbe/README.md) for the hardware gate that
 must pass before Windows+iPhone USB can be advertised.
 
 ## Requirements
 
-- Windows 11 x64 or Arm64
+- Windows 11 x64 or Arm64 (both cross-build; each remains beta until physically
+  verified on that architecture)
 - .NET 10 SDK only when building from source; published builds are
   self-contained
 - An iPhone and PC on the same trusted local network
 
 The receiver uses plain HTTP because the iPhone cannot pin a locally generated
-certificate. Do not use this workflow on public or otherwise untrusted Wi-Fi.
+certificate. It binds all IPv4 interfaces and relies on Windows Firewall for
+profile scope. Allow it on Private networks only, preferably limited to the
+local subnet, and do not use it on public or otherwise untrusted Wi-Fi.
 
 ## Build and test
 

@@ -17,7 +17,7 @@ target_compile_definitions(WpdProbe PRIVATE
 )
 
 if(MSVC)
-    target_compile_options(WpdProbe PRIVATE /W4 /permissive- /EHsc /utf-8)
+    target_compile_options(WpdProbe PRIVATE /W4 /WX /permissive- /EHsc /utf-8)
 endif()
 
 target_link_libraries(WpdProbe PRIVATE

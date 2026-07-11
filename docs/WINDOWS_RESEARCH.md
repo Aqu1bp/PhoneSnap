@@ -5,8 +5,10 @@ Status: implementation boundary for `feature/windows-iphone-capture`, researched
 
 ## Decision
 
-The next supported configuration is a **Windows protocol-v1 receiver with a
-manual iPhone Safari batch uploader**. It is a local-LAN workflow:
+The next implementation candidate is a **Windows protocol-v1 receiver with a
+manual iPhone Safari batch uploader**. It is currently a hardware-unverified
+beta and becomes supported only after the physical checklist in
+[`TEST_PLAN.md`](TEST_PLAN.md) passes. It is a local-LAN workflow:
 
 1. PhoneSnap for Windows starts a receiver that implements
    [`PROTOCOL.md`](PROTOCOL.md).
@@ -34,7 +36,7 @@ Apple documents that Safari on iOS supports HTML file uploads through
 `<input type="file">` ([Safari Web Content Guide](https://developer.apple.com/library/archive/documentation/AppleApplications/Reference/SafariWebContent/CreatingContentforSafarioniPhone/CreatingContentforSafarioniPhone.html)).
 The HTML standard defines both the file-upload state and the `multiple`
 attribute ([HTML Living Standard](https://html.spec.whatwg.org/multipage/input.html#file-upload-state-(type=file))).
-This gives the supported milestone a public, vendor-neutral way to request an
+This gives the beta milestone a public, vendor-neutral way to request an
 explicit batch selection without phone-side code or an undocumented API.
 
 The page is a platform-specific setup extension, not a change to protocol v1.
@@ -89,11 +91,12 @@ prove that the Apple driver advertises it, fires it for screenshots, or makes
 the new resource immediately readable.
 
 That driver-dependent behavior is why WPD USB is experimental rather than the
-supported Windows+iPhone milestone.
+Windows+iPhone beta milestone.
 
-## Supported receiver milestone
+## Beta receiver milestone
 
-The Windows milestone may claim support only for the following explicit flow:
+The Windows beta is limited to the following explicit flow; these are
+implementation boundaries, not a physical support claim:
 
 - Windows 11 desktop receiver for the stable local upload protocol.
 - Random persisted pair ID and high-entropy bearer token.
@@ -226,8 +229,8 @@ must fail that item safely with an actionable codec/SDR explanation.
 
 If either tested phone/driver combination does not advertise or reliably emit
 object-added events, the gate fails. Catalog polling is not silently
-substituted and automatic USB support is not claimed. The supported Safari
-uploader remains the Windows path.
+substituted and automatic USB support is not claimed. The Safari uploader
+remains the Windows beta path.
 
 ## Stacked branch dependency
 

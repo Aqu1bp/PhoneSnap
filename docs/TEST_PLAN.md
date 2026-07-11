@@ -9,6 +9,23 @@ swift test
 ./scripts/build-app.sh
 ```
 
+Windows receiver checks from `receivers/windows`:
+
+```powershell
+dotnet restore PhoneSnap.Windows.slnx --locked-mode
+dotnet test tests/PhoneSnap.Core.Tests/PhoneSnap.Core.Tests.csproj `
+  --configuration Release --no-restore
+dotnet build src/PhoneSnap.Windows/PhoneSnap.Windows.csproj `
+  --configuration Release --runtime win-x64 --no-restore
+dotnet build src/PhoneSnap.Windows/PhoneSnap.Windows.csproj `
+  --configuration Release --runtime win-arm64 --no-restore
+```
+
+The `PhoneSnap.Core` tests are portable and run on macOS, Linux, or Windows.
+The two WinForms builds prove both target graphs compile; running DPAPI, the
+Windows decoder, clipboard, QR dialog, firewall flow, and drag UI requires
+Windows.
+
 ## Wired End-to-End
 
 1. Launch the app.
@@ -115,6 +132,73 @@ credential-redacted logs.
 7. Confirm the Mac opens **Recent from iPhone**, each thumbnail drags into a file drop target, the files are saved, and the pasteboard contains the latest uploaded image.
 
 First run may require iOS Photos and local-network permission. Existing installed Shortcuts should be reinstalled to get batch behavior.
+
+## Windows + iPhone Safari End-to-End
+
+This is the implemented Windows beta, not yet a supported release
+configuration. It requires physical hardware because CI cannot operate
+Safari's Photos picker or Windows desktop integration. Passing the full list
+on x64 promotes only x64; Arm64 remains unverified until repeated on an Arm64
+PC.
+
+1. On a Windows 11 x64 or Arm64 PC, start `PhoneSnap.Windows.exe`.
+2. Start a second copy and confirm it reports that PhoneSnap is already
+   running without changing the first instance's pairing credentials.
+3. If Windows Firewall prompts, allow the app on **Private networks only** and
+   confirm its inbound rule does not allow the Public profile.
+4. Open the tray menu and confirm the receiver reports ready on the expected
+   LAN IPv4 address.
+5. Choose **Open iPhone Upload Page...** and scan the QR with an iPhone on the
+   same trusted LAN.
+6. Confirm Safari opens `/pair/<pairId>` without displaying the bearer token in
+   the address bar.
+7. Choose several SDR screenshots from Photos or Files and upload them.
+8. Include one browser-decodable non-PNG image; confirm the page converts it
+   and the receiver stores a normalized PNG.
+9. Confirm every file gets an independent success/failure result and one failed
+   item does not stop the remaining batch.
+10. Confirm generated filenames appear under
+   `%USERPROFILE%\Pictures\PhoneSnap` or `PHONESNAP_DIR`, with no sender
+   filename reuse or overwrite.
+11. Confirm the latest screenshot pastes as an image and file, and each card in
+    **Recent PhoneSnap Screenshots** drags into Explorer and at least one target
+    agent application.
+12. Upload at least 20 large valid screenshots and confirm Task Manager does
+    not show unbounded growth from retained full-resolution previews.
+13. Hold the Windows clipboard open from another process during one upload and
+    confirm PhoneSnap reports that the file was saved but the clipboard is
+    busy.
+14. Change Wi-Fi/DHCP address while PhoneSnap runs; confirm the setup QR updates
+    and a newly opened page reaches the receiver without restarting the app.
+15. Start once with no usable LAN adapter; confirm PhoneSnap does not present a
+    loopback QR and enables setup after the private LAN becomes available.
+16. Close and reopen the setup dialog; confirm the current QR and page work.
+17. Repeat with Windows Firewall access removed and confirm the failure is
+    understandable without affecting saved files or app shutdown.
+
+The automated .NET suite covers pairing persistence/rotation/corruption,
+pre-decode PNG dimension limits, collision-safe concurrent storage, setup-page
+CSP and uploader shape, exact lowercase protocol JSON, raw and multipart PNG,
+authentication-before-decode, query-token rejection, framing errors, corrupt
+PNG rejection, unsupported transfer encoding, and `Expect: 100-continue`.
+It does not replace the physical steps above.
+
+HDR screenshots can be HEIC on current iOS releases. Test both an SDR PNG and
+an HDR selection. If Safari cannot decode the HDR image, the page should mark
+only that item failed; do not claim HEIC support from a filename extension.
+
+## Experimental Windows WPD Probe
+
+The native probe under `tools/windows/WpdProbe` is research-only. Its build or
+successful device enumeration is not a Windows USB product test. Automatic
+Windows+iPhone USB may be promoted only after the complete multi-phone,
+format, reconnect, event, and failure matrix in
+[`WINDOWS_RESEARCH.md`](WINDOWS_RESEARCH.md) passes. Until then:
+
+- do not list WPD as a supported capture result;
+- do not substitute catalog polling when Apple's driver omits reliable
+  object-added events;
+- do not use Apple-private APIs or UI automation as a fallback.
 
 ## Shortcut Generation
 

@@ -38,6 +38,11 @@ try {
             -p:PublishSingleFile=true
         if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed for $runtime" }
 
+        $publishedFiles = @(Get-ChildItem $publishDirectory -File)
+        if ($publishedFiles.Count -ne 1 -or $publishedFiles[0].Name -ne "PhoneSnap.Windows.exe") {
+            throw "Expected one self-contained PhoneSnap.Windows.exe for $runtime"
+        }
+
         Compress-Archive -Path (Join-Path $publishDirectory "*") -DestinationPath $archive
         Write-Host "Created $archive"
     }
