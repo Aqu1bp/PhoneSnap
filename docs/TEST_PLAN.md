@@ -5,6 +5,7 @@
 ```bash
 swift build
 swift build -c release
+swift test
 ./scripts/build-app.sh
 ```
 
@@ -34,6 +35,23 @@ swift run ICProbe
 ```
 
 Expected: a trusted plugged-in iPhone appears as a camera-class device.
+
+## Android ADB End-to-End
+
+1. Install Android SDK Platform Tools.
+2. Connect an Android phone with USB debugging enabled and authorize the Mac.
+3. Confirm `adb devices -l` reports the device in `device` state.
+4. Launch PhoneSnap and confirm its Android status shows the model as ready.
+5. Choose **Capture Android Screen**.
+6. Confirm a single thumbnail appears, a PNG is saved, and paste works.
+7. Confirm drag, copy, save, open, delete, ESC, and timeout behavior.
+8. With two ready devices, confirm PhoneSnap presents a device submenu and
+   captures the selected display.
+9. Revoke USB debugging authorization and confirm the menu gives actionable
+   authorization status without affecting iPhone or wireless operation.
+
+The parser, executable resolver, bounded process runner, timeout, output limit,
+PNG validation, and bridge state transitions are covered by `swift test`.
 
 ## Wireless Receiver Smoke Test
 
@@ -80,6 +98,11 @@ Expected:
 - wireless uploads do not show the wired bottom-right thumbnail
 - after the debounce window, the Mac opens the **Recent from iPhone** panel for the received batch
 - missing/incorrect token returns `401 Unauthorized`
+
+The automated `./scripts/smoke-test.sh` additionally covers raw and multipart
+PNG, bearer-scheme casing, `Expect: 100-continue`, query-token rejection,
+malformed and oversized framing, normalized output, session deduplication, and
+credential-redacted logs.
 
 ## Wireless iPhone End-to-End
 

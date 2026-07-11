@@ -22,7 +22,8 @@ body:
     attributes:
       label: Area
       options:
-        - Wired USB capture
+        - iPhone USB capture
+        - Android ADB capture
         - Wireless Shortcut
         - Thumbnail UI
         - Packaging/install

@@ -97,9 +97,9 @@ concurrent requests and no deduplication guarantee across receiver restarts.
 | --- | --- |
 | `400 Bad Request` | Malformed/incomplete request or empty upload body. |
 | `401 Unauthorized` | Missing or invalid bearer credential. |
-| `408 Request Timeout` | Request did not complete within the receiver deadline. |
 | `404 Not Found` | Unknown route or pair ID. |
 | `405 Method Not Allowed` | Upload route used with a method other than `POST`. |
+| `408 Request Timeout` | Request did not complete within the receiver deadline. |
 | `411 Length Required` | Authenticated upload omitted `Content-Length`. |
 | `413 Payload Too Large` | Declared body exceeds 32 MiB. |
 | `415 Unsupported Media Type` | Body could not be decoded as an image. |

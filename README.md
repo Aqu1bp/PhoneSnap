@@ -1,8 +1,8 @@
 # PhoneSnap
 
-Drag real iPhone screenshots into your coding agent.
+Drag real phone screenshots into your coding agent.
 
-PhoneSnap is a small macOS menu bar app for AI-assisted iOS work. Plug in a trusted iPhone over USB, or run the generated iOS Shortcut over Wi-Fi, and PhoneSnap turns real device screenshots into draggable Mac thumbnails.
+PhoneSnap is a small macOS menu bar app for AI-assisted mobile work. It receives new screenshots automatically from a trusted USB iPhone, captures an Android display through ADB on demand, or accepts an iOS Shortcut batch over Wi-Fi, then turns the images into draggable Mac thumbnails.
 
 The goal is simple: when your agent needs to understand a broken layout, a weird state, or a real-device visual bug, you should be able to take a screenshot and drop it straight into Codex, Cursor, Claude, ChatGPT, Slack, or an issue.
 
@@ -26,13 +26,17 @@ When the Shortcut sends several screenshots, PhoneSnap keeps a **Recent from iPh
 3. Drag the thumbnail into your agent chat or issue.
 4. Ask for the fix with the real UI in view.
 
-USB is the primary path because macOS exposes a trusted plugged-in iPhone as a camera-class device through ImageCaptureCore. The wireless Shortcut is a manual fallback for times when USB is inconvenient.
+USB iPhone is the primary automatic path because macOS exposes a trusted plugged-in iPhone as a camera-class device through ImageCaptureCore. Android uses an explicit menu action backed by ADB, while the wireless iOS Shortcut remains a manual fallback for times when USB is inconvenient.
+
+For Android, put the desired UI on screen and choose **Capture Android Screen**
+from the Mac menu instead of step 2.
 
 ## Requirements
 
 - macOS 13+
 - Swift 5.9+ / Xcode 15+ to build
 - iPhone or iPad that appears to macOS through ImageCaptureCore
+- Optional Android device with USB debugging and Android SDK Platform Tools (`adb`)
 - USB or USB-C cable for wired mode
 - Same Wi-Fi/LAN for wireless Shortcut mode
 
@@ -65,6 +69,15 @@ A small iPhone icon appears in the menu bar. The app is running.
 
 Behind the scenes, PhoneSnap uses Apple's ImageCaptureCore framework. macOS exposes a trusted, plugged-in iPhone as a camera-class device, so PhoneSnap can watch for new camera-roll items after startup, filter likely screenshots, save them locally, copy them to the clipboard, and show the thumbnail.
 
+### Android with ADB
+
+1. Install Android SDK Platform Tools and enable USB debugging on the phone.
+2. Connect and authorize the phone; confirm it appears in `adb devices -l`.
+3. Open the PhoneSnap menu and choose **Capture Android Screen**.
+4. Drag or paste the resulting Mac thumbnail.
+
+PhoneSnap invokes `adb -s <serial> exec-out screencap -p` directly, without a shell, and feeds the PNG into the same local save, pasteboard, and thumbnail pipeline as wired iPhone images. Multiple connected Android devices appear in a submenu. See [Android setup](docs/ANDROID_SETUP.md) for installation, wireless-debugging, and troubleshooting details.
+
 ### Wireless Shortcut Batch Fallback
 
 1. Open the PhoneSnap menu bar item.
@@ -80,13 +93,16 @@ Existing installed PhoneSnap Shortcuts should be removed and reinstalled from th
 ## What Is Supported
 
 - Primary path: a trusted iPhone connected to the Mac over USB.
+- Supported Android path: user-triggered capture through an authorized USB or wireless ADB connection.
 - Fallback path: a locally generated, signed iOS Shortcut that sends a screenshot batch over the LAN.
 - Deprecated/experimental: automatic wireless senders embedded in the foreground app being built.
 - Deliberately not used: GitHub Gist rendezvous, third-party services, iCloud, or manual Shortcut URL/header/body entry.
 
 The `senders/` packages are deprecated as a main product path for now. They are kept as experimental references for foreground-app debug builds that post directly to the Mac upload endpoint. The menu no longer exposes a happy-path dev sender config action.
 
-## Wired Thumbnail Behavior
+## Single Thumbnail Behavior
+
+USB iPhone arrivals and Android ADB captures share this behavior:
 
 - Appears bottom-right of the screen containing the cursor.
 - Auto-copies the screenshot to the clipboard on arrival.
@@ -129,6 +145,7 @@ PHONESNAP_DIR=~/Desktop/screenshots open ./PhoneSnap.app
 | Change save folder | `PHONESNAP_DIR=~/wherever open ./PhoneSnap.app` |
 | Change wireless port | `PHONESNAP_WIRELESS_PORT=18472 open ./PhoneSnap.app` |
 | Change Shortcut batch size (1-50, default 10) | `PHONESNAP_BATCH_COUNT=20 open ./PhoneSnap.app`, then re-download and re-add the Shortcut |
+| Use ADB from a custom location | `PHONESNAP_ADB_PATH=/path/to/adb open ./PhoneSnap.app` |
 
 ## How It Works
 
@@ -140,6 +157,13 @@ iPhone over USB
     -> saves PNG to ~/Pictures/PhoneSnap
     -> writes PNG/TIFF/file URL to NSPasteboard
     -> shows a floating NSPanel thumbnail
+
+Android over USB or ADB Wi-Fi
+  user chooses Capture Android Screen
+    -> PhoneSnap selects the authorized ADB device
+    -> adb exec-out screencap -p streams a PNG
+    -> Mac saves and copies the PNG
+    -> Mac shows the same floating single-thumbnail panel
 
 iPhone over Wi-Fi
   user runs generated PhoneSnap Shortcut
@@ -160,6 +184,9 @@ iPhone over Wi-Fi experimental
 | Symptom | Fix |
 |---------|-----|
 | Nothing appears after taking a screenshot | Unlock the iPhone, reconnect the cable, and accept **Trust This Computer** if prompted. |
+| Android says `adb not found` | Install Android SDK Platform Tools or set `PHONESNAP_ADB_PATH` to the executable. |
+| Android says authorization is needed | Unlock the phone and accept **Allow USB debugging**, then reopen the menu. |
+| Android device is offline | Reconnect USB or reconnect its wireless ADB session; verify `adb devices -l` says `device`. |
 | Dragging into an agent does not attach the image | Use the copy button or paste with Command-V; PhoneSnap writes PNG, TIFF, and file URL pasteboard types. |
 | Old photos appear | Quit and reopen the app, then take a fresh screenshot. |
 | Clipboard paste fails | Use the thumbnail copy button; if it still fails, run from terminal with `swift run PhoneSnap` and check logs. |
@@ -174,15 +201,17 @@ iPhone over Wi-Fi experimental
 ## Known Limitations
 
 - Wired USB remains the primary supported path.
+- Android ADB capture is user-triggered; pressing Android's hardware screenshot buttons does not notify PhoneSnap portably.
+- PhoneSnap does not bundle ADB or enable Developer options/USB debugging for the user.
 - Shortcut wireless is manual-triggered and remains a fallback.
 - Existing installed Shortcuts need reinstall to get the latest batch upload behavior.
 - Dev senders are deprecated/experimental and no longer exposed in the main menu.
 - Wireless requires the Mac app to be running and reachable from the iPhone on the local network.
 - Shortcut signing depends on `/usr/bin/shortcuts sign --mode anyone`.
-- Wired mode shows one thumbnail at a time. A new wired screenshot dismisses the old wired thumbnail.
+- Single-capture mode shows one thumbnail at a time. A new iPhone USB or Android ADB image dismisses the old thumbnail.
 - Screenshot detection uses dimensions/aspect-ratio heuristics to avoid importing normal camera photos.
 - No app sandbox and no notarization. First launch may require right-click -> Open or removing quarantine metadata.
-- No automated iPhone end-to-end test; full wired/wireless verification requires a real trusted iPhone.
+- No automated phone end-to-end test; full verification requires a real trusted iPhone or authorized Android device.
 
 ## Project Layout
 
@@ -190,6 +219,7 @@ iPhone over Wi-Fi experimental
 PhoneSnap/
 ├── .github/                       CI, issue templates, repo automation
 ├── docs/                          architecture, research notes, test plan
+│   ├── ANDROID_SETUP.md           ADB installation and device setup
 │   └── PROTOCOL.md                stable cross-platform upload contract
 ├── senders/                       debug embedded sender references
 │   ├── apple-ios                  native UIKit Swift Package
@@ -198,6 +228,9 @@ PhoneSnap/
 │   └── flutter                    intended API stub
 ├── Sources/PhoneSnap/             macOS menu bar app
 │   ├── AppDelegate.swift          app lifecycle and delivery pipeline
+│   ├── ADBDevice.swift            Android device parsing and adb discovery
+│   ├── ADBProcessRunner.swift     bounded, timeout-safe subprocess runner
+│   ├── AndroidADBBridge.swift     Android polling and screen capture
 │   ├── CameraBridge.swift         ImageCaptureCore USB watcher
 │   ├── ImageStore.swift           save received bytes as PNG
 │   ├── Pasteboard.swift           multi-type clipboard write
@@ -212,6 +245,7 @@ PhoneSnap/
 │   └── Log.swift                  stderr logging
 ├── Sources/ICProbe/               ImageCaptureCore probe utility
 ├── Sources/UsbmuxdProbe/          usbmuxd probe utility
+├── Tests/PhoneSnapTests/          ADB parser, resolver, process, and bridge tests
 ├── scripts/build-app.sh           wraps the SwiftPM binary into PhoneSnap.app
 ├── scripts/smoke-test.sh          wireless receiver smoke test used by CI
 ├── Package.swift

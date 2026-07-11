@@ -15,7 +15,8 @@ body:
     attributes:
       label: Capture mode
       options:
-        - Wired USB
+        - iPhone USB
+        - Android ADB
         - Wireless Shortcut
         - Build/install
         - Documentation
@@ -42,6 +43,11 @@ body:
     attributes:
       label: iPhone/iPadOS version
       placeholder: "Example: iOS 18.5"
+  - type: input
+    id: android
+    attributes:
+      label: Android device/version and adb version
+      placeholder: "Example: Pixel 8, Android 16, adb 36.0.0"
   - type: textarea
     id: logs
     attributes:

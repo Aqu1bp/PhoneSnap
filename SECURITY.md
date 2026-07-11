@@ -3,10 +3,16 @@
 PhoneSnap is a local developer tool. This document describes its threat model
 so users can decide whether the wireless mode is appropriate for their network.
 
-## Wired mode
+## Local device modes
 
 The wired USB path uses Apple's ImageCaptureCore framework and opens no
 network listeners of its own. Screenshots never leave the machine.
+
+Android capture launches the locally installed `adb` executable directly with
+an argument array, never through a shell. PhoneSnap does not log complete ADB
+serials, manage debugging authorization, or start/stop the shared ADB server.
+If the user separately enables ADB wireless debugging, Android's ADB security
+and network exposure apply independently of PhoneSnap's HTTP receiver.
 
 ## Wireless mode threat model
 
@@ -29,8 +35,10 @@ default). Protections and their limits:
   to your Mac. Uploaded images are written to the save folder and copied to
   the clipboard, so treat a compromised token as a clipboard-injection risk
   and quit/relaunch guidance below applies.
-- **Body limits.** Uploads are capped at 32 MB and must decode as an image
-  before being saved.
+- **Resource limits.** Uploads are capped at 32 MB, decoded dimensions are
+  capped at 50 million pixels, authentication happens before body buffering,
+  only 16 simultaneous requests are retained, and incomplete requests time
+  out after 30 seconds.
 - **Signing route resource use.** The Shortcut download route spawns a
   `/usr/bin/shortcuts sign` subprocess and is gated only by the pair ID.
   Signing is serialized on one queue, capped by a 30-second timeout, and the

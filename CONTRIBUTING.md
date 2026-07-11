@@ -6,6 +6,7 @@ Thanks for your interest in PhoneSnap!
 
 ```bash
 swift build            # debug build of all targets
+swift test             # parser, resolver, process, and bridge unit tests
 ./scripts/build-app.sh # release build wrapped into PhoneSnap.app
 ./scripts/smoke-test.sh # wireless receiver smoke test after swift build
 swift run PhoneSnap    # run from source with logs on stderr
@@ -15,9 +16,10 @@ Requires macOS 13+ and Xcode 15+ / Swift 5.9+.
 
 ## Testing
 
-There is no automated end-to-end test — the wired path requires a real,
-trusted, USB-connected iPhone. Before opening a PR that touches the capture
-or wireless pipeline, walk through the relevant sections of
+There is no automated hardware end-to-end test — the wired paths require a
+real trusted iPhone or an authorized Android device. Before opening a PR that
+touches the capture or wireless pipeline, run `swift test`, then walk through
+the relevant sections of
 [docs/TEST_PLAN.md](docs/TEST_PLAN.md) and note in the PR what you verified
 on hardware.
 
@@ -36,8 +38,9 @@ are good places to start.
 ## Guidelines
 
 - Keep the app dependency-free (AppKit + system frameworks only).
-- Wired USB is the primary path; wireless is a fallback. Don't regress wired
-  behavior to improve wireless.
+- iPhone USB is the primary automatic path, Android ADB is an explicit capture
+  path, and wireless is a fallback. Don't regress an existing capture path to
+  improve another.
 - Read [SECURITY.md](SECURITY.md) before changing the wireless receiver —
   in particular, nothing may broadcast or serve the pair ID or token beyond
   the existing QR/setup-URL flow.
