@@ -49,6 +49,11 @@ The receiver caps request bodies at 32 MB, accepts raw image bodies and multipar
 
 `WirelessPairing` persists a short random pair ID and high-entropy bearer token in `UserDefaults`, so installed Shortcuts keep working across app restarts.
 
+The portable sender/receiver boundary is specified in
+[`PROTOCOL.md`](PROTOCOL.md). The setup page and signed Shortcut download are
+macOS-specific extensions; cross-platform senders depend only on the upload
+route.
+
 `WirelessShortcutGenerator` builds the Shortcut plist with the upload URL/token baked in and signs it with `/usr/bin/shortcuts sign --mode anyone`. The generated Shortcut asks Photos for the latest screenshot batch, repeats over it, and posts one image per request. Signing errors are served as clear HTTP `500` responses.
 
 ## Image Pipeline

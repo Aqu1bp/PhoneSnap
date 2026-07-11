@@ -190,6 +190,7 @@ iPhone over Wi-Fi experimental
 PhoneSnap/
 ├── .github/                       CI, issue templates, repo automation
 ├── docs/                          architecture, research notes, test plan
+│   └── PROTOCOL.md                stable cross-platform upload contract
 ├── senders/                       debug embedded sender references
 │   ├── apple-ios                  native UIKit Swift Package
 │   ├── expo                       Expo prototype
