@@ -1,10 +1,14 @@
 # Dev Senders
 
-Dev senders are deprecated/experimental for now. The product path is USB automatic first and Wireless Shortcut Batch fallback second. The sender packages remain in the repo as references, but they are not exposed as a main setup flow.
+Dev senders are deprecated/experimental for now. The product capture paths are
+automatic iPhone USB delivery, explicit Android ADB capture, and the iOS
+Wireless Shortcut Batch fallback. The sender packages remain in the repo as
+references, but they are not exposed as a main setup flow.
 
 ## Direction
 
 - USB remains the universal automatic mode. A trusted iPhone connected to the Mac is still the primary path because it works for any app on the device without phone-side code.
+- Android ADB is the supported Android path. The user explicitly chooses a ready USB- or Wi-Fi-connected ADB device from the PhoneSnap menu, and no phone-side PhoneSnap sender is required.
 - Shortcut is the fallback/manual wireless mode. It is useful when USB is unavailable, but the user must install and run the generated Shortcut. The current Shortcut sends the latest screenshot batch and the Mac shows **Recent from iPhone**.
 - Automatic wireless dev senders are foreground-app-only experiments. They come from debug code embedded in the app being built, so they can react while that app is active.
 - All wireless senders use the existing Mac receiver contract:

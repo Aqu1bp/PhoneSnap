@@ -10,9 +10,12 @@ network listeners of its own. Screenshots never leave the machine.
 
 Android capture launches the locally installed `adb` executable directly with
 an argument array, never through a shell. PhoneSnap does not log complete ADB
-serials, manage debugging authorization, or start/stop the shared ADB server.
-If the user separately enables ADB wireless debugging, Android's ADB security
-and network exposure apply independently of PhoneSnap's HTTP receiver.
+serials or manage debugging authorization. Its periodic `adb devices -l`
+invocation may cause the ADB client to start ADB's shared loopback server, and
+that server may use its own mDNS discovery for wireless-debugging devices.
+PhoneSnap does not explicitly configure or stop the ADB daemon. If the user
+enables ADB wireless debugging, Android's ADB security and network exposure
+apply independently of PhoneSnap's HTTP receiver.
 
 ## Wireless mode threat model
 
@@ -37,13 +40,17 @@ default). Protections and their limits:
   and quit/relaunch guidance below applies.
 - **Resource limits.** Uploads are capped at 32 MB, decoded dimensions are
   capped at 50 million pixels, authentication happens before body buffering,
-  only 16 simultaneous requests are retained, and incomplete requests time
-  out after 30 seconds.
+  only four simultaneous sessions are retained, incomplete headers time out
+  after 5 seconds, and incomplete request bodies time out after 30 seconds.
+  Completed image decoding and storage run serially off the network queue, so
+  their memory use is bounded without allowing a timed-out upload to be saved.
+  When the session cap is reached, an older unauthenticated session that is
+  still waiting for headers may be evicted to admit a new connection.
 - **Signing route resource use.** The Shortcut download route spawns a
   `/usr/bin/shortcuts sign` subprocess and is gated only by the pair ID.
-  Signing is serialized on one queue, capped by a 30-second timeout, and the
-  signed bytes are cached per upload URL, so repeated requests cannot pile up
-  subprocesses or stall the receiver.
+  Only one signing job is admitted at a time; concurrent requests receive
+  `503`. The subprocess is capped by a 30-second timeout, the HTTP request has
+  a 40-second outer deadline, and signed bytes are cached per upload URL.
 - **Credential storage.** The pair ID and token persist in `UserDefaults`
   (not the Keychain). They are readable by any process running as your user —
   the same trust level as the screenshots folder itself.

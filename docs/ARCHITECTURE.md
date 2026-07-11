@@ -53,8 +53,10 @@ shell. Standard output and error are drained concurrently with byte limits,
 commands time out, and output must have a PNG signature before delivery.
 
 ADB absence and failure are nonfatal and cannot stop the iPhone or wireless
-paths. PhoneSnap does not bundle ADB, start/stop its shared server explicitly,
-or attempt nonportable automatic Android camera-roll monitoring.
+paths. Polling invokes `adb devices -l`, which may implicitly start ADB's
+shared loopback server and use the daemon's own mDNS discovery for wireless
+debugging. PhoneSnap does not bundle ADB, explicitly configure or stop that
+daemon, or attempt nonportable automatic Android camera-roll monitoring.
 
 ## WirelessReceiver
 

@@ -66,8 +66,11 @@ Android's Wireless debugging settings and `adb pair` / `adb connect`. Once the
 device appears as `device` in `adb devices -l`, PhoneSnap treats it like a USB
 ADB device.
 
-PhoneSnap does not enable wireless debugging, scan the LAN, store ADB pairing
-codes, or restart the shared ADB server.
+PhoneSnap periodically invokes `adb devices -l`. That command may implicitly
+start ADB's shared loopback server, which can use its own mDNS discovery for
+wireless-debugging devices. PhoneSnap does not itself enable wireless
+debugging, implement LAN scanning, store pairing codes, or explicitly
+configure or stop the ADB daemon.
 
 ## Troubleshooting
 

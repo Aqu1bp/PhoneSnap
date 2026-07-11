@@ -52,6 +52,7 @@ final class AndroidADBBridgeTests: XCTestCase {
                 XCTAssertEqual(data, Self.pngData)
                 XCTAssertEqual(device.serial, "SERIAL1234")
                 captured.fulfill()
+                return true
             }
         )
 
@@ -85,13 +86,92 @@ final class AndroidADBBridgeTests: XCTestCase {
                     failed.fulfill()
                 }
             },
-            imageHandler: { _, _ in XCTFail("Invalid PNG must not be delivered") }
+            imageHandler: { _, _ in
+                XCTFail("Invalid PNG must not be delivered")
+                return false
+            }
         )
 
         bridge.start()
         wait(for: [discovered], timeout: 2)
         bridge.capture(serial: "SERIAL1234")
         wait(for: [failed], timeout: 2)
+        bridge.stop()
+    }
+
+    func testSaveFailureIsReportedInsteadOfPublishingIdle() {
+        let failed = expectation(description: "delivery failure snapshot")
+        let discovered = expectation(description: "device discovered")
+        discovered.assertForOverFulfill = false
+        let runner = FakeADBRunner { arguments in
+            if arguments == ["devices", "-l"] { return .success(Self.deviceListResult) }
+            return .success(ADBCommandResult(
+                standardOutput: Self.pngData,
+                standardError: Data(),
+                exitCode: 0
+            ))
+        }
+        let bridge = AndroidADBBridge(
+            runner: runner,
+            resolveExecutable: { self.executable },
+            pollInterval: 60,
+            snapshotHandler: { snapshot in
+                if snapshot.activity == .idle { discovered.fulfill() }
+                if case .failed(let message) = snapshot.activity,
+                   message.contains("could not be saved") {
+                    failed.fulfill()
+                }
+            },
+            imageHandler: { _, _ in false }
+        )
+
+        bridge.start()
+        wait(for: [discovered], timeout: 2)
+        bridge.capture(serial: "SERIAL1234")
+        wait(for: [failed], timeout: 2)
+        bridge.stop()
+    }
+
+    func testCaptureFailureRemainsVisibleAcrossDevicePolls() {
+        let discovered = expectation(description: "device discovered")
+        discovered.assertForOverFulfill = false
+        let failed = expectation(description: "capture failure")
+        failed.assertForOverFulfill = false
+        let prematureIdle = expectation(description: "failure was replaced by polling idle")
+        prematureIdle.isInverted = true
+        let tracker = FailureTracker()
+        let runner = FakeADBRunner { arguments in
+            if arguments == ["devices", "-l"] { return .success(Self.deviceListResult) }
+            return .success(ADBCommandResult(
+                standardOutput: Self.pngData,
+                standardError: Data(),
+                exitCode: 0
+            ))
+        }
+        let bridge = AndroidADBBridge(
+            runner: runner,
+            resolveExecutable: { self.executable },
+            pollInterval: 0.02,
+            snapshotHandler: { snapshot in
+                if snapshot.activity == .idle, !tracker.hasFailed {
+                    discovered.fulfill()
+                }
+                if case .failed(let message) = snapshot.activity,
+                   message.contains("could not be saved") {
+                    tracker.markFailed()
+                    failed.fulfill()
+                } else if snapshot.activity == .idle, tracker.hasFailed {
+                    prematureIdle.fulfill()
+                }
+            },
+            imageHandler: { _, _ in false }
+        )
+
+        bridge.start()
+        wait(for: [discovered], timeout: 2)
+        bridge.capture(serial: "SERIAL1234")
+        wait(for: [failed], timeout: 2)
+        wait(for: [prematureIdle], timeout: 0.2)
         bridge.stop()
     }
 
@@ -107,7 +187,10 @@ final class AndroidADBBridgeTests: XCTestCase {
                     unavailable.fulfill()
                 }
             },
-            imageHandler: { _, _ in XCTFail("No image expected") }
+            imageHandler: { _, _ in
+                XCTFail("No image expected")
+                return false
+            }
         )
 
         bridge.start()
@@ -124,7 +207,7 @@ final class AndroidADBBridgeTests: XCTestCase {
             resolveExecutable: { self.executable },
             pollInterval: 60,
             snapshotHandler: snapshotHandler,
-            imageHandler: { _, _ in }
+            imageHandler: { _, _ in true }
         )
     }
 
@@ -134,12 +217,29 @@ final class AndroidADBBridgeTests: XCTestCase {
         exitCode: 0
     )
 
-    private static let pngData = Data([
-        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00
-    ])
+    private static let pngData = Data(base64Encoded:
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    )!
 }
 
 private enum TestError: Error { case failed }
+
+private final class FailureTracker: @unchecked Sendable {
+    private let lock = NSLock()
+    private var failed = false
+
+    var hasFailed: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return failed
+    }
+
+    func markFailed() {
+        lock.lock()
+        failed = true
+        lock.unlock()
+    }
+}
 
 private final class FakeADBRunner: ADBCommandRunning, @unchecked Sendable {
     typealias Handler = ([String]) -> Result<ADBCommandResult, Error>

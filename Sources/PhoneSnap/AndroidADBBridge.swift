@@ -57,7 +57,7 @@ final class AndroidADBBridge: @unchecked Sendable {
     }
 
     typealias SnapshotHandler = @Sendable (Snapshot) -> Void
-    typealias ImageHandler = @Sendable (Data, ADBDevice) -> Void
+    typealias ImageHandler = @Sendable (Data, ADBDevice) -> Bool
 
     private let queue: DispatchQueue
     private let runner: any ADBCommandRunning
@@ -73,6 +73,8 @@ final class AndroidADBBridge: @unchecked Sendable {
     private var commandInFlight = false
     private var executable: URL?
     private var devices: [ADBDevice] = []
+    private var lastPublishedSnapshot: Snapshot = .stopped
+    private var captureFailureClearWorkItem: DispatchWorkItem?
     private let captureRequestLock = NSLock()
     private var captureRequested = false
 
@@ -117,6 +119,8 @@ final class AndroidADBBridge: @unchecked Sendable {
             self.isRunning = false
             self.timer?.cancel()
             self.timer = nil
+            self.captureFailureClearWorkItem?.cancel()
+            self.captureFailureClearWorkItem = nil
             self.executable = nil
             self.devices = []
             self.publish(activity: .stopped)
@@ -124,7 +128,10 @@ final class AndroidADBBridge: @unchecked Sendable {
     }
 
     func refresh() {
-        queue.async { [weak self] in self?.pollDevices() }
+        queue.async { [weak self] in
+            self?.clearCaptureFailure()
+            self?.pollDevices()
+        }
     }
 
     func capture(serial: String) {
@@ -143,6 +150,7 @@ final class AndroidADBBridge: @unchecked Sendable {
                 self.captureRequested = false
                 self.captureRequestLock.unlock()
             }
+            self.clearCaptureFailure()
             self.captureOnQueue(serial: serial)
         }
     }
@@ -159,7 +167,6 @@ final class AndroidADBBridge: @unchecked Sendable {
             return
         }
         self.executable = executable
-        publish(activity: .checking)
 
         do {
             let result = try runner.run(
@@ -176,7 +183,9 @@ final class AndroidADBBridge: @unchecked Sendable {
             }
             let output = String(data: result.standardOutput, encoding: .utf8) ?? ""
             devices = ADBDeviceListParser.parse(output)
-            publish(activity: .idle)
+            if captureFailureClearWorkItem == nil {
+                publish(activity: .idle)
+            }
         } catch {
             publish(activity: .failed(Self.concise(error.localizedDescription)))
         }
@@ -185,17 +194,17 @@ final class AndroidADBBridge: @unchecked Sendable {
     private func captureOnQueue(serial: String) {
         guard isRunning else { return }
         guard !commandInFlight else {
-            publish(activity: .failed("another adb command is already running"))
+            publishCaptureFailure("another adb command is already running")
             return
         }
         guard let executable else {
-            publish(activity: .failed("adb is unavailable"))
+            publishCaptureFailure("adb is unavailable")
             return
         }
         guard let device = devices.first(where: {
             $0.serial == serial && $0.connectionState == .ready
         }) else {
-            publish(activity: .failed("selected device is no longer available"))
+            publishCaptureFailure("selected device is no longer available")
             return
         }
 
@@ -215,27 +224,51 @@ final class AndroidADBBridge: @unchecked Sendable {
             )
             guard result.exitCode == 0 else {
                 let message = diagnosticMessage(from: result, fallback: "capture failed")
-                publish(activity: .failed(message))
+                publishCaptureFailure(message)
                 return
             }
             guard Self.isPNG(result.standardOutput) else {
-                publish(activity: .failed("adb returned invalid screenshot data"))
+                publishCaptureFailure("adb returned invalid screenshot data")
                 return
             }
 
-            imageHandler(result.standardOutput, device)
+            guard imageHandler(result.standardOutput, device) else {
+                publishCaptureFailure("captured image could not be saved")
+                return
+            }
+            clearCaptureFailure()
             publish(activity: .idle)
         } catch {
-            publish(activity: .failed(Self.concise(error.localizedDescription)))
+            publishCaptureFailure(Self.concise(error.localizedDescription))
         }
     }
 
+    private func publishCaptureFailure(_ message: String) {
+        captureFailureClearWorkItem?.cancel()
+        publish(activity: .failed(message))
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.isRunning else { return }
+            self.captureFailureClearWorkItem = nil
+            self.publish(activity: .idle)
+        }
+        captureFailureClearWorkItem = work
+        queue.asyncAfter(deadline: .now() + 8, execute: work)
+    }
+
+    private func clearCaptureFailure() {
+        captureFailureClearWorkItem?.cancel()
+        captureFailureClearWorkItem = nil
+    }
+
     private func publish(activity: Snapshot.Activity) {
-        snapshotHandler(Snapshot(
+        let snapshot = Snapshot(
             activity: activity,
             adbAvailable: executable != nil,
             devices: devices
-        ))
+        )
+        guard snapshot != lastPublishedSnapshot else { return }
+        lastPublishedSnapshot = snapshot
+        snapshotHandler(snapshot)
     }
 
     private func diagnosticMessage(from result: ADBCommandResult, fallback: String) -> String {

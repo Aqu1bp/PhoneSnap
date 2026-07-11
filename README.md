@@ -76,7 +76,14 @@ Behind the scenes, PhoneSnap uses Apple's ImageCaptureCore framework. macOS expo
 3. Open the PhoneSnap menu and choose **Capture Android Screen**.
 4. Drag or paste the resulting Mac thumbnail.
 
-PhoneSnap invokes `adb -s <serial> exec-out screencap -p` directly, without a shell, and feeds the PNG into the same local save, pasteboard, and thumbnail pipeline as wired iPhone images. Multiple connected Android devices appear in a submenu. See [Android setup](docs/ANDROID_SETUP.md) for installation, wireless-debugging, and troubleshooting details.
+PhoneSnap polls with `adb devices -l`, then invokes `adb -s <serial> exec-out
+screencap -p` directly, without a shell, and feeds the PNG into the same local
+save, pasteboard, and thumbnail pipeline as wired iPhone images. Invoking ADB
+may implicitly start its shared loopback server, whose wireless-debugging
+discovery can use mDNS; PhoneSnap does not explicitly configure or stop that
+daemon. Multiple connected Android devices appear in a submenu. See [Android
+setup](docs/ANDROID_SETUP.md) for installation, wireless-debugging, and
+troubleshooting details.
 
 ### Wireless Shortcut Batch Fallback
 

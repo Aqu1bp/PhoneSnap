@@ -38,10 +38,11 @@ final class WirelessReceiver {
     private let stateHandler: StateHandler
     private let queue = DispatchQueue(label: "phonesnap.wireless")
     private let maxBody = 32 * 1024 * 1024
-    private let maxSessions = 16
+    private let maxSessions = 4
     private var listener: NWListener?
     private var sessions: [ObjectIdentifier: WirelessHTTPSession] = [:]
     private let sessionsLock = NSLock()
+    private var isAcceptingConnections = false
 
     init(port: UInt16,
          pairing: WirelessPairing,
@@ -66,6 +67,9 @@ final class WirelessReceiver {
         // token from the generated Shortcut. The QR code / setup URL is the
         // only distribution channel for the pair ID.
         self.listener = listener
+        sessionsLock.lock()
+        isAcceptingConnections = true
+        sessionsLock.unlock()
         listener.newConnectionHandler = { [weak self] connection in
             self?.accept(connection)
         }
@@ -77,6 +81,9 @@ final class WirelessReceiver {
                 self.stateHandler(.ready)
             case .failed(let error):
                 Log.error("Wireless receiver failed: \(error)")
+                self.sessionsLock.lock()
+                self.isAcceptingConnections = false
+                self.sessionsLock.unlock()
                 self.stateHandler(.failed(error.localizedDescription))
             case .cancelled:
                 self.stateHandler(.stopped)
@@ -88,12 +95,13 @@ final class WirelessReceiver {
     }
 
     func stop() {
-        listener?.cancel()
-        listener = nil
         sessionsLock.lock()
+        isAcceptingConnections = false
         let activeSessions = Array(sessions.values)
         sessions.removeAll()
         sessionsLock.unlock()
+        listener?.cancel()
+        listener = nil
         activeSessions.forEach { $0.cancel() }
         stateHandler(.stopped)
     }
@@ -126,10 +134,25 @@ final class WirelessReceiver {
     }
 
     private func retain(_ session: WirelessHTTPSession) -> Bool {
+        var evicted: WirelessHTTPSession?
         sessionsLock.lock()
-        defer { sessionsLock.unlock() }
-        guard sessions.count < maxSessions else { return false }
+        guard isAcceptingConnections else {
+            sessionsLock.unlock()
+            return false
+        }
+        if sessions.count >= maxSessions {
+            guard let entry = sessions.first(where: { $0.value.isAwaitingHeaders }) else {
+                sessionsLock.unlock()
+                return false
+            }
+            sessions.removeValue(forKey: entry.key)
+            evicted = entry.value
+        }
         sessions[ObjectIdentifier(session)] = session
+        sessionsLock.unlock()
+        // A new connection must not be starved by idle unauthenticated peers.
+        // Cancellation is marshalled back onto the receiver queue.
+        evicted?.cancel()
         return true
     }
 
@@ -141,6 +164,19 @@ final class WirelessReceiver {
 }
 
 private final class WirelessHTTPSession {
+    private enum ProcessedUpload {
+        case malformedMultipart
+        case completed(WirelessReceiver.UploadResult, byteCount: Int)
+    }
+
+    /// Raster decoding and disk I/O never run on the network callback queue.
+    /// Serial execution also bounds aggregate decoder memory.
+    private static let uploadQueue = DispatchQueue(label: "phonesnap.upload-processing", qos: .userInitiated)
+
+    private static let signingQueue = DispatchQueue(label: "phonesnap.shortcut-signing")
+    private static let signingLock = NSLock()
+    private static var signingInProgress = false
+
     private let connection: NWConnection
     private let queue: DispatchQueue
     private let maxBody: Int
@@ -161,6 +197,11 @@ private final class WirelessHTTPSession {
     private var requestTimeout: DispatchWorkItem?
 
     var onFinished: (() -> Void)?
+
+    /// Read only by WirelessReceiver on the same serial network queue.
+    var isAwaitingHeaders: Bool {
+        !headersParsed && !responseQueued && !didFinish
+    }
 
     init(connection: NWConnection,
          queue: DispatchQueue,
@@ -184,7 +225,7 @@ private final class WirelessHTTPSession {
         connection.stateUpdateHandler = { [weak self] state in
             switch state {
             case .ready:
-                self?.scheduleRequestTimeout()
+                self?.scheduleRequestTimeout(after: 5, message: "request headers did not arrive within 5 seconds")
                 self?.receive()
             case .failed(let error):
                 Log.error("Wireless HTTP connection failed: \(error)")
@@ -199,7 +240,7 @@ private final class WirelessHTTPSession {
     }
 
     func cancel() {
-        finishAndCancel()
+        queue.async { [self] in finishAndCancel() }
     }
 
     private func receive() {
@@ -343,6 +384,7 @@ private final class WirelessHTTPSession {
             }
             sendContinue()
         }
+        scheduleRequestTimeout(after: 30, message: "request did not complete within 30 seconds")
         return true
     }
 
@@ -379,10 +421,13 @@ private final class WirelessHTTPSession {
     }
 
     private func handleRequest() {
+        // The read deadline has done its job once the complete request is in
+        // memory. Processing has separately bounded resources; leaving this
+        // timer armed could return 408 and then save an upload afterwards.
         requestTimeout?.cancel()
         requestTimeout = nil
         let path = Self.pathOnly(from: target)
-        Log.info("Wireless HTTP \(method) \(Self.logPath(path)) (\(body.count) body bytes)")
+        Log.info("Wireless HTTP \(Self.logMethod(method)) \(Self.logPath(path)) (\(body.count) body bytes)")
         if path == "/pair/\(pairing.pairID)" || path == "/pair/\(pairing.pairID)/" {
             handleSetupPage()
             return
@@ -420,13 +465,6 @@ private final class WirelessHTTPSession {
         )
     }
 
-    /// Signing runs a `/usr/bin/shortcuts` subprocess. It must stay off the
-    /// shared connection queue (a slow or hung signing would stall every
-    /// other request), and it is serialized so concurrent downloads cannot
-    /// each spawn a signing process — the route is reachable with just the
-    /// pair ID, before bearer-token auth applies.
-    private static let signingQueue = DispatchQueue(label: "phonesnap.shortcut-signing")
-
     private func handleShortcutDownload() {
         guard method == "GET" || method == "HEAD" else {
             respond(status: "405 Method Not Allowed", text: "GET only")
@@ -442,13 +480,26 @@ private final class WirelessHTTPSession {
             )
             return
         }
+        guard Self.beginSigning() else {
+            respond(
+                status: "503 Service Unavailable",
+                text: "PhoneSnap is already generating a Shortcut; try again shortly",
+                extraHeaders: ["Retry-After": "5"]
+            )
+            return
+        }
+        // The generator has its own 30-second process timeout plus a short
+        // termination/drain grace period. Keep the HTTP deadline outside it
+        // so the useful generator error remains visible to the client.
+        scheduleRequestTimeout(after: 40, message: "Shortcut generation did not complete within 40 seconds")
         let token = pairing.token
         let batchCount = self.batchCount
         Self.signingQueue.async { [weak self] in
+            defer { Self.endSigning() }
+            guard let self else { return }
             let result = Result {
                 try WirelessShortcutGenerator.makeSigned(uploadURL: uploadURL, token: token, batchCount: batchCount)
             }
-            guard let self else { return }
             self.queue.async {
                 switch result {
                 case .success(let bytes):
@@ -474,28 +525,38 @@ private final class WirelessHTTPSession {
             return
         }
 
+        let requestBody = body
         let contentType = headers["content-type"] ?? ""
-        let imageData: Data
-        if Self.mediaType(from: contentType) == "multipart/form-data" {
-            guard let extracted = Self.extractImageFromMultipart(body: body, contentType: contentType) else {
-                respond(status: "415 Unsupported Media Type", text: "multipart upload did not contain a valid image part")
-                return
+        let uploadHandler = self.uploadHandler
+        Self.uploadQueue.async { [weak self] in
+            guard let self else { return }
+            let processed: ProcessedUpload
+            if Self.mediaType(from: contentType) == "multipart/form-data" {
+                guard let extracted = Self.extractImageFromMultipart(body: requestBody, contentType: contentType) else {
+                    self.queue.async { self.finishUpload(.malformedMultipart) }
+                    return
+                }
+                processed = .completed(uploadHandler(extracted), byteCount: extracted.count)
+            } else {
+                processed = .completed(uploadHandler(requestBody), byteCount: requestBody.count)
             }
-            imageData = extracted
-        } else {
-            imageData = body
+            self.queue.async { self.finishUpload(processed) }
         }
+    }
 
-        switch uploadHandler(imageData) {
-        case .accepted:
+    private func finishUpload(_ processed: ProcessedUpload) {
+        switch processed {
+        case .malformedMultipart:
+            respond(status: "415 Unsupported Media Type", text: "multipart upload did not contain a valid image part")
+        case .completed(.accepted, let byteCount):
             respond(
                 status: "200 OK",
-                text: "{\"ok\":true,\"bytes\":\(imageData.count)}",
+                text: "{\"ok\":true,\"bytes\":\(byteCount)}",
                 contentType: "application/json"
             )
-        case .invalidImage:
+        case .completed(.invalidImage, _):
             respond(status: "415 Unsupported Media Type", text: "PhoneSnap could not decode an image from the upload")
-        case .storageFailure:
+        case .completed(.storageFailure, _):
             respond(status: "500 Internal Server Error", text: "PhoneSnap could not store the uploaded image")
         }
     }
@@ -636,11 +697,11 @@ private final class WirelessHTTPSession {
                              contentType: String,
                              contentLength: Int? = nil,
                              extraHeaders: [String: String] = [:]) {
-        guard !responseQueued else { return }
+        guard !responseQueued, !didFinish else { return }
         responseQueued = true
         requestTimeout?.cancel()
         requestTimeout = nil
-        Log.info("Wireless HTTP → \(status) for \(method) \(Self.logPath(Self.pathOnly(from: target)))")
+        Log.info("Wireless HTTP → \(status) for \(Self.logMethod(method)) \(Self.logPath(Self.pathOnly(from: target)))")
         var header = "HTTP/1.1 \(status)\r\n"
         header += "Content-Type: \(contentType)\r\n"
         header += "Content-Length: \(contentLength ?? body.count)\r\n"
@@ -675,13 +736,14 @@ private final class WirelessHTTPSession {
         onFinished?()
     }
 
-    private func scheduleRequestTimeout() {
+    private func scheduleRequestTimeout(after interval: TimeInterval, message: String) {
+        requestTimeout?.cancel()
         let work = DispatchWorkItem { [weak self] in
             guard let self, !self.responseQueued, !self.didFinish else { return }
-            self.respond(status: "408 Request Timeout", text: "request did not complete within 30 seconds")
+            self.respond(status: "408 Request Timeout", text: message)
         }
         requestTimeout = work
-        queue.asyncAfter(deadline: .now() + 30, execute: work)
+        queue.asyncAfter(deadline: .now() + interval, execute: work)
     }
 
     private func sendContinue() {
@@ -706,7 +768,28 @@ private final class WirelessHTTPSession {
                 ? "/pair/<redacted>/PhoneSnap.shortcut"
                 : "/pair/<redacted>"
         }
-        return path
+        return "<unknown>"
+    }
+
+    private static func logMethod(_ method: String) -> String {
+        switch method {
+        case "GET", "HEAD", "POST": return method
+        default: return "<unknown>"
+        }
+    }
+
+    private static func beginSigning() -> Bool {
+        signingLock.lock()
+        defer { signingLock.unlock() }
+        guard !signingInProgress else { return false }
+        signingInProgress = true
+        return true
+    }
+
+    private static func endSigning() {
+        signingLock.lock()
+        signingInProgress = false
+        signingLock.unlock()
     }
 
     private static func mediaType(from contentType: String) -> String {

@@ -32,14 +32,16 @@ APP_PID=$!
 
 # Wait for the receiver to come up and the pairing values to persist.
 PAIR=""
+READY=0
 for _ in $(seq 1 30); do
   sleep 0.5
   PAIR=$(HOME="$HOME" defaults read PhoneSnap PhoneSnapWirelessPairID 2>/dev/null || true)
   if [ -n "$PAIR" ] && curl -s -m 5 -o /dev/null "http://127.0.0.1:$PORT/pair/$PAIR"; then
+    READY=1
     break
   fi
 done
-if [ -z "$PAIR" ]; then
+if [ "$READY" != "1" ]; then
   echo "receiver never came up; app log:"
   cat "$DIR/app.log"
   exit 1
@@ -50,6 +52,8 @@ BASE="http://127.0.0.1:$PORT"
 # 1x1 transparent PNG for upload checks.
 printf 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==' \
   | base64 -d > "$DIR/px.png"
+printf 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl+XgAAAABJRU5ErkJggg==' \
+  | base64 -d > "$DIR/red.png"
 
 fail=0
 check() {
@@ -76,6 +80,18 @@ check_raw() {
   fi
 }
 
+check_header() {
+  local desc="$1" want="$2"; shift 2
+  local headers
+  headers=$(curl -s -m 10 -D - -o /dev/null "$@" | tr -d '\r')
+  if printf '%s\n' "$headers" | grep -Fqi "$want"; then
+    echo "ok   header $desc"
+  else
+    echo "FAIL missing response header '$want' — $desc"
+    fail=1
+  fi
+}
+
 check "setup page"                200 "$BASE/pair/$PAIR"
 check "unknown pair ID"           404 "$BASE/pair/not-a-real-pair-id"
 check "upload without token"      401 -X POST --data-binary @"$DIR/px.png" "$BASE/api/v1/upload/$PAIR"
@@ -85,10 +101,15 @@ check "lowercase bearer scheme"    200 -X POST -H "Authorization: bearer $TOKEN"
 check "multipart image upload"    200 -X POST -H "Authorization: Bearer $TOKEN" -F "file=@$DIR/px.png;type=image/png" "$BASE/api/v1/upload/$PAIR"
 check "Expect 100-continue"        200 -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: image/png" -H "Expect: 100-continue" --data-binary @"$DIR/px.png" "$BASE/api/v1/upload/$PAIR"
 check "chunked rejected"          501 -X POST -H "Authorization: Bearer $TOKEN" -H "Transfer-Encoding: chunked" --data-binary @"$DIR/px.png" "$BASE/api/v1/upload/$PAIR"
-check "non-image rejected"        415 -X POST -H "Authorization: Bearer $TOKEN" --data-binary "definitely not an image" "$BASE/api/v1/upload/$PAIR"
+check "non-image rejected after decode" 415 -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: image/png" --data-binary "definitely not an image" "$BASE/api/v1/upload/$PAIR"
+check "authenticated empty body"  400 -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: image/png" -H "Content-Length: 0" "$BASE/api/v1/upload/$PAIR"
 check "query token rejected"      401 -X POST -H "Content-Type: image/png" --data-binary @"$DIR/px.png" "$BASE/api/v1/upload/$PAIR?token=$TOKEN"
 check "malformed multipart"       415 -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: multipart/form-data" --data-binary @"$DIR/px.png" "$BASE/api/v1/upload/$PAIR"
 check "GET on upload route"       405 "$BASE/api/v1/upload/$PAIR"
+check "unsupported Expect"        417 -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: image/png" -H "Expect: something-else" --data-binary @"$DIR/px.png" "$BASE/api/v1/upload/$PAIR"
+check_header "upload method advertises POST" "Allow: POST" "$BASE/api/v1/upload/$PAIR"
+check_header "setup page disables caching" "Cache-Control: no-store" "$BASE/pair/$PAIR"
+check_header "setup page disables referrers" "Referrer-Policy: no-referrer" "$BASE/pair/$PAIR"
 
 AUTH_HEADER="Authorization: Bearer $TOKEN"
 UPLOAD_PATH="/api/v1/upload/$PAIR"
@@ -97,6 +118,59 @@ check_raw "invalid Content-Length" 400 "POST $UPLOAD_PATH HTTP/1.1\r\nHost: 127.
 check_raw "negative Content-Length" 400 "POST $UPLOAD_PATH HTTP/1.1\r\nHost: 127.0.0.1:$PORT\r\n$AUTH_HEADER\r\nContent-Type: image/png\r\nContent-Length: -1\r\nConnection: close\r\n\r\n"
 check_raw "duplicate Content-Length" 400 "POST $UPLOAD_PATH HTTP/1.1\r\nHost: 127.0.0.1:$PORT\r\n$AUTH_HEADER\r\nContent-Type: image/png\r\nContent-Length: 1\r\nContent-Length: 1\r\nConnection: close\r\n\r\nX"
 check_raw "declared body above limit" 413 "POST $UPLOAD_PATH HTTP/1.1\r\nHost: 127.0.0.1:$PORT\r\n$AUTH_HEADER\r\nContent-Type: image/png\r\nContent-Length: 33554433\r\nConnection: close\r\n\r\n"
+check_raw "unauthorized body rejected before buffering" 401 "POST $UPLOAD_PATH HTTP/1.1\r\nHost: 127.0.0.1:$PORT\r\nContent-Type: image/png\r\nContent-Length: 33554432\r\nConnection: close\r\n\r\n"
+
+OVERSIZED_HEADER_STATUS=$(
+  {
+    printf 'GET /pair/%s HTTP/1.1\r\nHost: 127.0.0.1:%s\r\nX-Fill: ' "$PAIR" "$PORT"
+    awk 'BEGIN { for (i = 0; i < 65536; i++) printf "a" }'
+    printf '\r\n\r\n'
+  } | nc -w 3 127.0.0.1 "$PORT" | head -n 1 | awk '{print $2}'
+)
+if [ "$OVERSIZED_HEADER_STATUS" = "431" ]; then
+  echo "ok   431 oversized request headers"
+else
+  echo "FAIL want 431 got ${OVERSIZED_HEADER_STATUS:-<none>} — oversized request headers"
+  fail=1
+fi
+
+EXPECT_TRACE=$(curl -sS -m 10 -o /dev/null -v -X POST \
+  -H "$AUTH_HEADER" -H "Content-Type: image/png" -H "Expect: 100-continue" \
+  --data-binary @"$DIR/px.png" "$BASE$UPLOAD_PATH" 2>&1)
+if printf '%s\n' "$EXPECT_TRACE" | grep -Fq '< HTTP/1.1 100 Continue'; then
+  echo "ok   interim 100 Continue is sent before the upload body"
+else
+  echo "FAIL receiver did not emit an interim 100 Continue response"
+  fail=1
+fi
+
+SLOW_HEADER_STATUS=$(
+  {
+    printf 'GET /pair/%s HTTP/1.1\r\nHost: 127.0.0.1:%s\r\n' "$PAIR" "$PORT"
+    sleep 6
+  } | nc -w 8 127.0.0.1 "$PORT" | head -n 1 | awk '{print $2}'
+)
+if [ "$SLOW_HEADER_STATUS" = "408" ]; then
+  echo "ok   408 incomplete headers time out"
+else
+  echo "FAIL want 408 got ${SLOW_HEADER_STATUS:-<none>} — incomplete headers time out"
+  fail=1
+fi
+
+HOSTILE_STATUS=$(curl -s -m 10 -o "$DIR/hostile.html" -w '%{http_code}' \
+  -H "Host: attacker.example:$PORT" "$BASE/pair/$PAIR")
+if [ "$HOSTILE_STATUS" != "200" ]; then
+  echo "FAIL want 200 got ${HOSTILE_STATUS:-<none>} — setup page with untrusted Host header"
+  fail=1
+elif grep -Fq "attacker.example" "$DIR/hostile.html"; then
+  echo "FAIL setup page reflected an untrusted Host header"
+  fail=1
+else
+  echo "ok   setup page rejects untrusted Host headers"
+fi
+
+check "distinct sequential image" 200 -X POST -H "$AUTH_HEADER" \
+  -H "Content-Type: image/png" --data-binary @"$DIR/red.png" "$BASE$UPLOAD_PATH"
 
 JSON=$(curl -s -m 10 -X POST -H "$AUTH_HEADER" -H "Content-Type: image/png" --data-binary @"$DIR/px.png" "$BASE$UPLOAD_PATH")
 PNG_BYTES=$(wc -c < "$DIR/px.png" | tr -d ' ')
@@ -108,10 +182,10 @@ else
 fi
 
 SAVED_COUNT=$(find "$DIR/snaps" -type f -name '*.png' 2>/dev/null | wc -l | tr -d ' ')
-if [ "$SAVED_COUNT" = "1" ]; then
-  echo "ok   duplicate uploads produced one normalized file"
+if [ "$SAVED_COUNT" = "2" ]; then
+  echo "ok   duplicate uploads deduplicated while a distinct image was saved"
 else
-  echo "FAIL expected one normalized file, found $SAVED_COUNT"
+  echo "FAIL expected two normalized files, found $SAVED_COUNT"
   fail=1
 fi
 

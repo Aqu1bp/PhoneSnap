@@ -102,8 +102,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             },
             imageHandler: { [weak self] data, device in
-                guard let self else { return }
-                _ = self.deliver(data: data, source: "Android ADB(\(device.displayName))")
+                guard let self else { return false }
+                return self.deliver(data: data, source: "Android ADB(\(device.displayName))")
             }
         )
 
