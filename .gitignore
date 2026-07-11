@@ -6,6 +6,14 @@ xcuserdata/
 PhoneSnap.app/
 dist/
 .DS_Store
+
+# Windows/.NET build outputs
+**/bin/
+**/obj/
+.vs/
+TestResults/
+artifacts/
+*.user
 *.log
 
 # local environment / credentials
