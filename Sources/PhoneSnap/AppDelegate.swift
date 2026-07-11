@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var presenter: ThumbnailPresenter!
     private var wirelessBatchPresenter: WirelessBatchPresenter!
     private var cameraBridge: CameraBridge!
+    private var androidBridge: AndroidADBBridge!
     private var wirelessReceiver: WirelessReceiver!
     private var wirelessSetupWindow: WirelessSetupWindowController!
     private let store = ImageStore()
@@ -21,6 +22,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return min(max(value, 1), 50)
     }()
     private var wirelessState: WirelessReceiver.State = .stopped
+    private var androidSnapshot: AndroidADBBridge.Snapshot = .stopped
+    private var hasConnectedAppleDevice = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         presenter = ThumbnailPresenter()
@@ -42,8 +45,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 return "Wired: connected to \(names.joined(separator: ", "))"
             },
+            androidStatus: { [weak self] in
+                self?.androidSnapshot.menuTitle ?? AndroidADBBridge.Snapshot.stopped.menuTitle
+            },
+            androidCaptureDevices: { [weak self] in
+                guard let snapshot = self?.androidSnapshot,
+                      snapshot.activity == .idle else { return [] }
+                return snapshot.readyDevices
+            },
             wirelessStatus: { [weak self] in
                 self?.wirelessState.menuTitle ?? WirelessReceiver.State.stopped.menuTitle
+            },
+            onCaptureAndroid: { [weak self] serial in
+                self?.androidBridge.capture(serial: serial)
             },
             onShowLast: { [weak self] in self?.showLastScreenshot() },
             onRevealFolder: { [weak self] in self?.store.revealInFinder() },
@@ -74,9 +88,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             _ = self.deliver(data: data, source: "Cable(\(name))")
         }
         cameraBridge.onDevicesChanged = { [weak self] names in
-            self?.statusItemController.setConnected(!names.isEmpty)
+            self?.hasConnectedAppleDevice = !names.isEmpty
+            self?.refreshConnectedState()
             self?.statusItemController.refresh()
         }
+
+        androidBridge = AndroidADBBridge(
+            snapshotHandler: { [weak self] snapshot in
+                DispatchQueue.main.async {
+                    self?.androidSnapshot = snapshot
+                    self?.refreshConnectedState()
+                    self?.statusItemController.refresh()
+                }
+            },
+            imageHandler: { [weak self] data, device in
+                guard let self else { return }
+                _ = self.deliver(data: data, source: "Android ADB(\(device.displayName))")
+            }
+        )
 
         do {
             try wirelessReceiver.start()
@@ -88,11 +117,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         Log.info("Starting wired iPhone screenshot watcher")
         cameraBridge.start()
+        Log.info("Starting optional Android ADB watcher")
+        androidBridge.start()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         wirelessReceiver?.stop()
         cameraBridge?.stop()
+        androidBridge?.stop()
+    }
+
+    @MainActor
+    private func refreshConnectedState() {
+        statusItemController.setConnected(
+            hasConnectedAppleDevice || !androidSnapshot.readyDevices.isEmpty
+        )
     }
 
     /// Prefer the last screenshot delivered this session (wired or wireless);
