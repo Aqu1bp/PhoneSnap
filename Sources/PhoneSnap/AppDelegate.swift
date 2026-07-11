@@ -69,7 +69,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             pairing: wirelessPairing,
             batchCount: wirelessBatchCount,
             uploadHandler: { [weak self] data in
-                guard let self else { return false }
+                guard let self else { return .storageFailure }
                 return self.deliverWireless(data: data)
             },
             stateHandler: { [weak self] state in
@@ -184,7 +184,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let seenWirelessUploadsLock = NSLock()
 
     @discardableResult
-    private func deliverWireless(data: Data) -> Bool {
+    private func deliverWireless(data: Data) -> WirelessReceiver.UploadResult {
         let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
         seenWirelessUploadsLock.lock()
         let existing = seenWirelessUploads[digest]
@@ -194,7 +194,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async { [weak self] in
                 self?.wirelessBatchPresenter.enqueue(fileURL: existing)
             }
-            return true
+            return .accepted
         }
         do {
             let url = try store.save(data: data)
@@ -206,10 +206,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.wirelessBatchPresenter.enqueue(fileURL: url)
                 Pasteboard.write(fileURL: url)
             }
-            return true
+            return .accepted
+        } catch ImageStore.SaveError.noImage {
+            Log.error("Save failed (Wireless Shortcut Batch): uploaded data is not an image")
+            return .invalidImage
+        } catch ImageStore.SaveError.imageTooLarge {
+            Log.error("Save failed (Wireless Shortcut Batch): image dimensions exceed the safety limit")
+            return .invalidImage
         } catch {
             Log.error("Save failed (Wireless Shortcut Batch): \(error)")
-            return false
+            return .storageFailure
         }
     }
 }

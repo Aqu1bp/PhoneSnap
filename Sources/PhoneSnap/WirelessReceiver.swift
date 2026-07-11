@@ -2,6 +2,12 @@ import Foundation
 import Network
 
 final class WirelessReceiver {
+    enum UploadResult {
+        case accepted
+        case invalidImage
+        case storageFailure
+    }
+
     enum State: Equatable {
         case stopped
         case starting
@@ -22,7 +28,7 @@ final class WirelessReceiver {
         }
     }
 
-    typealias UploadHandler = (Data) -> Bool
+    typealias UploadHandler = (Data) -> UploadResult
     typealias StateHandler = (State) -> Void
 
     private let port: UInt16
@@ -32,6 +38,7 @@ final class WirelessReceiver {
     private let stateHandler: StateHandler
     private let queue = DispatchQueue(label: "phonesnap.wireless")
     private let maxBody = 32 * 1024 * 1024
+    private let maxSessions = 16
     private var listener: NWListener?
     private var sessions: [ObjectIdentifier: WirelessHTTPSession] = [:]
     private let sessionsLock = NSLock()
@@ -106,18 +113,24 @@ final class WirelessReceiver {
             primaryBaseURL: primaryBaseURL,
             uploadHandler: uploadHandler
         )
-        retain(session)
         session.onFinished = { [weak self, weak session] in
             guard let session else { return }
             self?.release(session)
         }
+        guard retain(session) else {
+            Log.error("Wireless receiver rejected a connection because the session limit was reached")
+            session.cancel()
+            return
+        }
         session.start()
     }
 
-    private func retain(_ session: WirelessHTTPSession) {
+    private func retain(_ session: WirelessHTTPSession) -> Bool {
         sessionsLock.lock()
+        defer { sessionsLock.unlock() }
+        guard sessions.count < maxSessions else { return false }
         sessions[ObjectIdentifier(session)] = session
-        sessionsLock.unlock()
+        return true
     }
 
     private func release(_ session: WirelessHTTPSession) {
@@ -135,7 +148,7 @@ private final class WirelessHTTPSession {
     private let pairing: WirelessPairing
     private let batchCount: Int
     private let primaryBaseURL: String
-    private let uploadHandler: (Data) -> Bool
+    private let uploadHandler: (Data) -> WirelessReceiver.UploadResult
     private var buffer = Data()
     private var headersParsed = false
     private var method = ""
@@ -145,6 +158,7 @@ private final class WirelessHTTPSession {
     private var body = Data()
     private var didFinish = false
     private var responseQueued = false
+    private var requestTimeout: DispatchWorkItem?
 
     var onFinished: (() -> Void)?
 
@@ -155,7 +169,7 @@ private final class WirelessHTTPSession {
          pairing: WirelessPairing,
          batchCount: Int,
          primaryBaseURL: String,
-         uploadHandler: @escaping (Data) -> Bool) {
+         uploadHandler: @escaping (Data) -> WirelessReceiver.UploadResult) {
         self.connection = connection
         self.queue = queue
         self.maxBody = maxBody
@@ -170,6 +184,7 @@ private final class WirelessHTTPSession {
         connection.stateUpdateHandler = { [weak self] state in
             switch state {
             case .ready:
+                self?.scheduleRequestTimeout()
                 self?.receive()
             case .failed(let error):
                 Log.error("Wireless HTTP connection failed: \(error)")
@@ -200,7 +215,7 @@ private final class WirelessHTTPSession {
                 self.buffer.append(data)
                 if !self.headersParsed {
                     if !self.tryParseHeaders(), self.buffer.count > 64 * 1024 {
-                        self.respond(status: "400 Bad Request", text: "headers too large")
+                        self.respond(status: "431 Request Header Fields Too Large", text: "headers too large")
                         return
                     }
                     if self.responseQueued {
@@ -239,6 +254,11 @@ private final class WirelessHTTPSession {
         guard let endRange = buffer.range(of: Data("\r\n\r\n".utf8)) else {
             return false
         }
+        guard endRange.upperBound <= 64 * 1024 else {
+            headersParsed = true
+            respond(status: "431 Request Header Fields Too Large", text: "headers too large")
+            return true
+        }
         let head = buffer.prefix(upTo: endRange.lowerBound)
         buffer.removeSubrange(buffer.startIndex..<endRange.upperBound)
         guard let headString = String(data: head, encoding: .utf8) else {
@@ -252,7 +272,7 @@ private final class WirelessHTTPSession {
             return true
         }
         let parts = requestLine.split(separator: " ")
-        guard parts.count >= 2 else {
+        guard parts.count == 3, parts[2].hasPrefix("HTTP/1.") else {
             respond(status: "400 Bad Request", text: "bad request line")
             return true
         }
@@ -263,43 +283,113 @@ private final class WirelessHTTPSession {
             guard let separator = line.firstIndex(of: ":") else { continue }
             let key = line[..<separator].trimmingCharacters(in: .whitespaces).lowercased()
             let value = line[line.index(after: separator)...].trimmingCharacters(in: .whitespaces)
+            if key == "content-length", headers[key] != nil {
+                headersParsed = true
+                respond(status: "400 Bad Request", text: "duplicate Content-Length")
+                return true
+            }
             headers[key] = value
         }
 
+        if let rawLength = headers["content-length"] {
+            guard !rawLength.isEmpty,
+                  rawLength.utf8.allSatisfy({ $0 >= 0x30 && $0 <= 0x39 }),
+                  let parsed = Int(rawLength) else {
+                headersParsed = true
+                respond(status: "400 Bad Request", text: "invalid Content-Length")
+                return true
+            }
+            contentLength = parsed
+        } else {
+            contentLength = 0
+        }
+        headersParsed = true
+
+        guard validateRequestHeaders() else { return true }
+
         if let transferEncoding = headers["transfer-encoding"],
            transferEncoding.lowercased() != "identity" {
-            headersParsed = true
             contentLength = 0
             body = Data()
             respond(status: "501 Not Implemented", text: "Transfer-Encoding is not supported; send a Content-Length body")
             return true
         }
 
-        contentLength = Int(headers["content-length"] ?? "0") ?? 0
+        if Self.pathOnly(from: target) == "/api/v1/upload/\(pairing.pairID)",
+           headers["content-length"] == nil {
+            respond(status: "411 Length Required", text: "POST requests must include Content-Length")
+            return true
+        }
+
         if contentLength > maxBody {
-            headersParsed = true
             contentLength = 0
             body = Data()
             respond(status: "413 Payload Too Large", text: "request body limit is 32 MB")
             return true
         }
 
-        headersParsed = true
+        if Self.pathOnly(from: target) == "/api/v1/upload/\(pairing.pairID)" {
+            let mediaType = Self.mediaType(from: headers["content-type"] ?? "")
+            guard mediaType.hasPrefix("image/") || mediaType == "multipart/form-data" else {
+                respond(status: "415 Unsupported Media Type", text: "upload Content-Type must be image/* or multipart/form-data")
+                return true
+            }
+        }
+
+        if let expectation = headers["expect"] {
+            guard expectation.caseInsensitiveCompare("100-continue") == .orderedSame else {
+                respond(status: "417 Expectation Failed", text: "unsupported Expect header")
+                return true
+            }
+            sendContinue()
+        }
         return true
     }
 
-    private func handleRequest() {
+    private func validateRequestHeaders() -> Bool {
         let path = Self.pathOnly(from: target)
-        Log.info("Wireless HTTP \(method) \(path) (\(body.count) body bytes)")
-        if method == "GET" || method == "HEAD" {
-            if path == "/pair/\(pairing.pairID)" || path == "/pair/\(pairing.pairID)/" {
-                handleSetupPage()
-                return
+        let setupPath = "/pair/\(pairing.pairID)"
+        let shortcutPath = "\(setupPath)/PhoneSnap.shortcut"
+        let uploadPath = "/api/v1/upload/\(pairing.pairID)"
+
+        if path == setupPath || path == "\(setupPath)/" || path == shortcutPath {
+            guard method == "GET" || method == "HEAD" else {
+                respond(status: "405 Method Not Allowed", text: "GET or HEAD only", extraHeaders: ["Allow": "GET, HEAD"])
+                return false
             }
-            if path == "/pair/\(pairing.pairID)/PhoneSnap.shortcut" {
-                handleShortcutDownload()
-                return
+            return true
+        }
+
+        if path == uploadPath {
+            guard method == "POST" else {
+                respond(status: "405 Method Not Allowed", text: "POST only", extraHeaders: ["Allow": "POST"])
+                return false
             }
+            guard isAuthorized() else {
+                respond(status: "401 Unauthorized", text: "missing or invalid PhoneSnap token", extraHeaders: [
+                    "WWW-Authenticate": "Bearer"
+                ])
+                return false
+            }
+            return true
+        }
+
+        respond(status: "404 Not Found", text: "PhoneSnap wireless route not found")
+        return false
+    }
+
+    private func handleRequest() {
+        requestTimeout?.cancel()
+        requestTimeout = nil
+        let path = Self.pathOnly(from: target)
+        Log.info("Wireless HTTP \(method) \(Self.logPath(path)) (\(body.count) body bytes)")
+        if path == "/pair/\(pairing.pairID)" || path == "/pair/\(pairing.pairID)/" {
+            handleSetupPage()
+            return
+        }
+        if path == "/pair/\(pairing.pairID)/PhoneSnap.shortcut" {
+            handleShortcutDownload()
+            return
         }
 
         if path == "/api/v1/upload/\(pairing.pairID)" {
@@ -315,11 +405,18 @@ private final class WirelessHTTPSession {
             respond(status: "405 Method Not Allowed", text: "GET only")
             return
         }
-        let body = method == "HEAD" ? Data() : Data(setupHTML().utf8)
+        let representation = Data(setupHTML().utf8)
+        let body = method == "HEAD" ? Data() : representation
         respondData(
             status: "200 OK",
             body: body,
-            contentType: "text/html; charset=utf-8"
+            contentType: "text/html; charset=utf-8",
+            contentLength: representation.count,
+            extraHeaders: [
+                "Cache-Control": "no-store",
+                "Referrer-Policy": "no-referrer",
+                "X-Content-Type-Options": "nosniff"
+            ]
         )
     }
 
@@ -355,7 +452,7 @@ private final class WirelessHTTPSession {
             self.queue.async {
                 switch result {
                 case .success(let bytes):
-                    Log.info("Generated PhoneSnap.shortcut for \(uploadURL) (\(bytes.count) bytes)")
+                    Log.info("Generated PhoneSnap.shortcut for paired receiver (\(bytes.count) bytes)")
                     self.respondData(
                         status: "200 OK",
                         body: bytes,
@@ -372,20 +469,6 @@ private final class WirelessHTTPSession {
     }
 
     private func handleUpload() {
-        guard method == "POST" else {
-            respond(status: "405 Method Not Allowed", text: "POST only")
-            return
-        }
-        guard isAuthorized() else {
-            respond(status: "401 Unauthorized", text: "missing or invalid PhoneSnap token", extraHeaders: [
-                "WWW-Authenticate": "Bearer"
-            ])
-            return
-        }
-        guard headers["content-length"] != nil else {
-            respond(status: "411 Length Required", text: "POST requests must include Content-Length")
-            return
-        }
         guard !body.isEmpty else {
             respond(status: "400 Bad Request", text: "empty upload body")
             return
@@ -393,28 +476,36 @@ private final class WirelessHTTPSession {
 
         let contentType = headers["content-type"] ?? ""
         let imageData: Data
-        if contentType.lowercased().contains("multipart/form-data"),
-           let extracted = Self.extractImageFromMultipart(body: body, contentType: contentType) {
+        if Self.mediaType(from: contentType) == "multipart/form-data" {
+            guard let extracted = Self.extractImageFromMultipart(body: body, contentType: contentType) else {
+                respond(status: "415 Unsupported Media Type", text: "multipart upload did not contain a valid image part")
+                return
+            }
             imageData = extracted
         } else {
             imageData = body
         }
 
-        let ok = uploadHandler(imageData)
-        if ok {
+        switch uploadHandler(imageData) {
+        case .accepted:
             respond(
                 status: "200 OK",
                 text: "{\"ok\":true,\"bytes\":\(imageData.count)}",
                 contentType: "application/json"
             )
-        } else {
+        case .invalidImage:
             respond(status: "415 Unsupported Media Type", text: "PhoneSnap could not decode an image from the upload")
+        case .storageFailure:
+            respond(status: "500 Internal Server Error", text: "PhoneSnap could not store the uploaded image")
         }
     }
 
     private func isAuthorized() -> Bool {
         guard let authorization = headers["authorization"] else { return false }
-        return Self.constantTimeEquals(authorization, "Bearer \(pairing.token)")
+        let parts = authorization.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
+        guard parts.count == 2,
+              String(parts[0]).caseInsensitiveCompare("Bearer") == .orderedSame else { return false }
+        return Self.constantTimeEquals(String(parts[1]), pairing.token)
     }
 
     /// Compares the full strings even on early mismatch so response timing
@@ -475,7 +566,7 @@ private final class WirelessHTTPSession {
     }
 
     private func requestBaseURL() -> String {
-        guard let host = headers["host"].flatMap(Self.safeHostHeader), !host.isEmpty else {
+        guard let host = headers["host"].flatMap(trustedHostHeader), !host.isEmpty else {
             return primaryBaseURL
         }
         if host.hasPrefix("[") {
@@ -487,6 +578,45 @@ private final class WirelessHTTPSession {
             return "http://\(host)"
         }
         return "http://\(host):\(port)"
+    }
+
+    /// Only the hostnames PhoneSnap itself offers in the setup window may be
+    /// reflected into a token-bearing Shortcut. Accepting an arbitrary Host
+    /// header here would turn DNS rebinding into credential exfiltration.
+    private func trustedHostHeader(_ value: String) -> String? {
+        guard let safe = Self.safeHostHeader(value) else { return nil }
+
+        let host: String
+        let explicitPort: UInt16?
+        if safe.hasPrefix("["), let closing = safe.firstIndex(of: "]") {
+            host = String(safe[safe.index(after: safe.startIndex)..<closing])
+            let remainder = safe[safe.index(after: closing)...]
+            if remainder.isEmpty {
+                explicitPort = nil
+            } else if remainder.hasPrefix(":"), let parsed = UInt16(remainder.dropFirst()) {
+                explicitPort = parsed
+            } else {
+                return nil
+            }
+        } else if let separator = safe.lastIndex(of: ":") {
+            host = String(safe[..<separator])
+            guard let parsed = UInt16(safe[safe.index(after: separator)...]) else { return nil }
+            explicitPort = parsed
+        } else {
+            host = safe
+            explicitPort = nil
+        }
+
+        guard explicitPort == nil || explicitPort == port else { return nil }
+        let allowed = [
+            LANAddress.bonjourHostName(),
+            LANAddress.currentIPv4(),
+            "localhost",
+            "127.0.0.1",
+            "::1"
+        ].compactMap { $0?.lowercased() }
+        guard allowed.contains(host.lowercased()) else { return nil }
+        return safe
     }
 
     private func respond(status: String,
@@ -504,13 +634,16 @@ private final class WirelessHTTPSession {
     private func respondData(status: String,
                              body: Data,
                              contentType: String,
+                             contentLength: Int? = nil,
                              extraHeaders: [String: String] = [:]) {
         guard !responseQueued else { return }
         responseQueued = true
-        Log.info("Wireless HTTP → \(status) for \(method) \(Self.pathOnly(from: target))")
+        requestTimeout?.cancel()
+        requestTimeout = nil
+        Log.info("Wireless HTTP → \(status) for \(method) \(Self.logPath(Self.pathOnly(from: target)))")
         var header = "HTTP/1.1 \(status)\r\n"
         header += "Content-Type: \(contentType)\r\n"
-        header += "Content-Length: \(body.count)\r\n"
+        header += "Content-Length: \(contentLength ?? body.count)\r\n"
         for (key, value) in extraHeaders {
             header += "\(key): \(value)\r\n"
         }
@@ -528,6 +661,8 @@ private final class WirelessHTTPSession {
     private func finishAndCancel() {
         if didFinish { return }
         didFinish = true
+        requestTimeout?.cancel()
+        requestTimeout = nil
         connection.cancel()
         onFinished?()
     }
@@ -535,13 +670,51 @@ private final class WirelessHTTPSession {
     private func finish() {
         if didFinish { return }
         didFinish = true
+        requestTimeout?.cancel()
+        requestTimeout = nil
         onFinished?()
+    }
+
+    private func scheduleRequestTimeout() {
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, !self.responseQueued, !self.didFinish else { return }
+            self.respond(status: "408 Request Timeout", text: "request did not complete within 30 seconds")
+        }
+        requestTimeout = work
+        queue.asyncAfter(deadline: .now() + 30, execute: work)
+    }
+
+    private func sendContinue() {
+        let packet = Data("HTTP/1.1 100 Continue\r\n\r\n".utf8)
+        connection.send(content: packet, completion: .contentProcessed { error in
+            if let error {
+                Log.error("Wireless HTTP 100 Continue send failed: \(error)")
+            }
+        })
     }
 
     private static func pathOnly(from target: String) -> String {
         let rawPath = target.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false).first
             .map(String.init) ?? target
         return rawPath.removingPercentEncoding ?? rawPath
+    }
+
+    private static func logPath(_ path: String) -> String {
+        if path.hasPrefix("/api/v1/upload/") { return "/api/v1/upload/<redacted>" }
+        if path.hasPrefix("/pair/") {
+            return path.hasSuffix("/PhoneSnap.shortcut")
+                ? "/pair/<redacted>/PhoneSnap.shortcut"
+                : "/pair/<redacted>"
+        }
+        return path
+    }
+
+    private static func mediaType(from contentType: String) -> String {
+        contentType
+            .split(separator: ";", maxSplits: 1, omittingEmptySubsequences: false)
+            .first
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            ?? ""
     }
 
     private static func isIPBaseURL(_ base: String) -> Bool {
@@ -576,16 +749,7 @@ private final class WirelessHTTPSession {
     }
 
     private static func extractImageFromMultipart(body: Data, contentType: String) -> Data? {
-        guard let boundaryRange = contentType.range(of: "boundary=") else { return nil }
-        var boundary = String(contentType[boundaryRange.upperBound...])
-        if let separator = boundary.firstIndex(of: ";") {
-            boundary = String(boundary[..<separator])
-        }
-        boundary = boundary.trimmingCharacters(in: .whitespaces)
-        if boundary.hasPrefix("\""), boundary.hasSuffix("\""), boundary.count >= 2 {
-            boundary = String(boundary.dropFirst().dropLast())
-        }
-        guard !boundary.isEmpty else { return nil }
+        guard let boundary = multipartBoundary(from: contentType) else { return nil }
 
         let delimiter = Data(("--" + boundary).utf8)
         var cursor = body.startIndex
@@ -625,6 +789,26 @@ private final class WirelessHTTPSession {
                 }
             }
             cursor = nextBoundary
+        }
+        return nil
+    }
+
+    private static func multipartBoundary(from contentType: String) -> String? {
+        let components = contentType.split(separator: ";", omittingEmptySubsequences: false)
+        guard components.first?.trimmingCharacters(in: .whitespacesAndNewlines)
+            .caseInsensitiveCompare("multipart/form-data") == .orderedSame else { return nil }
+
+        for component in components.dropFirst() {
+            let pair = component.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            guard pair.count == 2,
+                  pair[0].trimmingCharacters(in: .whitespacesAndNewlines)
+                    .caseInsensitiveCompare("boundary") == .orderedSame else { continue }
+            var boundary = pair[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            if boundary.hasPrefix("\""), boundary.hasSuffix("\""), boundary.count >= 2 {
+                boundary = String(boundary.dropFirst().dropLast())
+            }
+            guard !boundary.isEmpty, boundary.utf8.count <= 200 else { return nil }
+            return boundary
         }
         return nil
     }

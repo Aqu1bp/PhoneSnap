@@ -1,8 +1,17 @@
 import Foundation
 import AppKit
+import ImageIO
 
 final class ImageStore {
-    enum SaveError: Error { case noImage }
+    enum SaveError: Error {
+        case noImage
+        case imageTooLarge
+    }
+
+    /// Bounds decoded memory use for authenticated LAN uploads. Current phone
+    /// screenshots are far below this threshold, while compressed image bombs
+    /// can advertise enormous dimensions in a small request body.
+    private static let maxPixelCount = 50_000_000
 
     let folder: URL
 
@@ -59,17 +68,36 @@ final class ImageStore {
 
     /// Decode incoming bytes, convert anything that loads to PNG.
     private func normalize(data: Data) throws -> (NSImage, Data) {
+        if Self.hasAcceptableDimensions(data) == false {
+            throw SaveError.imageTooLarge
+        }
         if let image = NSImage(data: data),
            let png = Self.png(from: image) {
             return (image, png)
         }
         // Fallback: scan for an embedded PNG/JPEG signature inside the body (e.g. unparsed multipart).
         if let extracted = Self.extractImageBytes(from: data),
+           Self.hasAcceptableDimensions(extracted),
            let image = NSImage(data: extracted),
            let png = Self.png(from: image) {
             return (image, png)
         }
         throw SaveError.noImage
+    }
+
+    private static func hasAcceptableDimensions(_ data: Data) -> Bool {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue,
+              let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue,
+              width > 0,
+              height > 0 else {
+            // Dimension parsing is part of image validation. Unknown formats
+            // continue to NSImage so supported system decoders still work.
+            return true
+        }
+        guard width <= maxPixelCount / height else { return false }
+        return width * height <= maxPixelCount
     }
 
     private static func png(from image: NSImage) -> Data? {
