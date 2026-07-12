@@ -20,6 +20,13 @@ final class AndroidADBBridge: @unchecked Sendable {
             devices.filter { $0.connectionState == .ready }
         }
 
+        /// Whether the bridge has a ready device from a current, successful
+        /// discovery snapshot. Discovery failures clear `devices`; capture/save
+        /// failures deliberately keep the last successful discovery result.
+        var hasCurrentReadyDevice: Bool {
+            adbAvailable && !readyDevices.isEmpty
+        }
+
         var menuTitle: String {
             switch activity {
             case .stopped:
@@ -75,6 +82,8 @@ final class AndroidADBBridge: @unchecked Sendable {
     private var devices: [ADBDevice] = []
     private var lastPublishedSnapshot: Snapshot = .stopped
     private var captureFailureClearWorkItem: DispatchWorkItem?
+    private var captureFailureMessage: String?
+    private var captureFailureGeneration: UInt = 0
     private let captureRequestLock = NSLock()
     private var captureRequested = false
 
@@ -119,8 +128,7 @@ final class AndroidADBBridge: @unchecked Sendable {
             self.isRunning = false
             self.timer?.cancel()
             self.timer = nil
-            self.captureFailureClearWorkItem?.cancel()
-            self.captureFailureClearWorkItem = nil
+            self.clearCaptureFailure()
             self.executable = nil
             self.devices = []
             self.publish(activity: .stopped)
@@ -178,16 +186,25 @@ final class AndroidADBBridge: @unchecked Sendable {
             )
             guard result.exitCode == 0 else {
                 let message = diagnosticMessage(from: result, fallback: "adb device check failed")
+                clearCaptureFailure()
+                devices = []
                 publish(activity: .failed(message))
                 return
             }
             let output = String(data: result.standardOutput, encoding: .utf8) ?? ""
             devices = ADBDeviceListParser.parse(output)
-            if captureFailureClearWorkItem == nil {
+            if let captureFailureMessage {
+                // Keep the transient capture error visible, but do not hide a
+                // device-list change discovered by a background poll.
+                publish(activity: .failed(captureFailureMessage))
+            } else {
                 publish(activity: .idle)
             }
         } catch {
-            publish(activity: .failed(Self.concise(error.localizedDescription)))
+            let message = sanitizedDiagnostic(error.localizedDescription)
+            clearCaptureFailure()
+            devices = []
+            publish(activity: .failed(message))
         }
     }
 
@@ -239,16 +256,22 @@ final class AndroidADBBridge: @unchecked Sendable {
             clearCaptureFailure()
             publish(activity: .idle)
         } catch {
-            publishCaptureFailure(Self.concise(error.localizedDescription))
+            publishCaptureFailure(sanitizedDiagnostic(error.localizedDescription))
         }
     }
 
     private func publishCaptureFailure(_ message: String) {
         captureFailureClearWorkItem?.cancel()
+        captureFailureGeneration &+= 1
+        let generation = captureFailureGeneration
+        captureFailureMessage = message
         publish(activity: .failed(message))
         let work = DispatchWorkItem { [weak self] in
-            guard let self, self.isRunning else { return }
+            guard let self,
+                  self.isRunning,
+                  self.captureFailureGeneration == generation else { return }
             self.captureFailureClearWorkItem = nil
+            self.captureFailureMessage = nil
             self.publish(activity: .idle)
         }
         captureFailureClearWorkItem = work
@@ -258,6 +281,8 @@ final class AndroidADBBridge: @unchecked Sendable {
     private func clearCaptureFailure() {
         captureFailureClearWorkItem?.cancel()
         captureFailureClearWorkItem = nil
+        captureFailureMessage = nil
+        captureFailureGeneration &+= 1
     }
 
     private func publish(activity: Snapshot.Activity) {
@@ -275,11 +300,20 @@ final class AndroidADBBridge: @unchecked Sendable {
         let stderr = String(data: result.standardError, encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard let stderr, !stderr.isEmpty else { return fallback }
-        return Self.concise(stderr)
+        return sanitizedDiagnostic(stderr)
+    }
+
+    private func sanitizedDiagnostic(_ message: String) -> String {
+        let knownSerials = Set(devices.map(\.serial).filter { !$0.isEmpty })
+            .sorted { $0.count > $1.count }
+        let redacted = knownSerials.reduce(message) { sanitized, serial in
+            sanitized.replacingOccurrences(of: serial, with: "[device]")
+        }
+        return Self.concise(redacted)
     }
 
     private static func concise(_ message: String) -> String {
-        let firstLine = message.split(whereSeparator: \Character.isNewline).first.map(String.init) ?? message
+        let firstLine = message.split(whereSeparator: { $0.isNewline }).first.map(String.init) ?? message
         return String(firstLine.prefix(180))
     }
 
