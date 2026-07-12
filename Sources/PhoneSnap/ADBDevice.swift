@@ -44,12 +44,12 @@ struct ADBDevice: Equatable, Sendable {
 enum ADBDeviceListParser {
     static func parse(_ output: String) -> [ADBDevice] {
         output
-            .split(whereSeparator: \Character.isNewline)
+            .split(whereSeparator: { $0.isNewline })
             .compactMap(parseLine)
     }
 
     private static func parseLine(_ line: Substring) -> ADBDevice? {
-        let fields = line.split(whereSeparator: \Character.isWhitespace)
+        let fields = line.split(whereSeparator: { $0.isWhitespace })
         guard fields.count >= 2 else { return nil }
 
         let serial = String(fields[0])

@@ -130,7 +130,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor
     private func refreshConnectedState() {
         statusItemController.setConnected(
-            hasConnectedAppleDevice || !androidSnapshot.readyDevices.isEmpty
+            hasConnectedAppleDevice || androidSnapshot.hasCurrentReadyDevice
         )
     }
 

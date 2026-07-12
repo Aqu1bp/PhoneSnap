@@ -1,4 +1,5 @@
 import XCTest
+import AppKit
 @testable import PhoneSnap
 
 final class ImageStoreTests: XCTestCase {
@@ -71,6 +72,85 @@ final class ImageStoreTests: XCTestCase {
         )
     }
 
+    func testIndependentStoresRacingAtSameTimeNeverOverwriteOrLoseData() throws {
+        let folder = temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let saveCount = 16
+        let fixedDate = Date(timeIntervalSince1970: 1_700_000_000)
+        // Each instance has its own in-memory lock, matching separate-process
+        // filename allocation as closely as possible without subprocess timing.
+        let stores = (0..<saveCount).map { _ in
+            ImageStore(folder: folder, now: { fixedDate })
+        }
+        let inputs = try (1...saveCount).map(Self.png(width:))
+        let savedURLs = LockedURLs()
+        let failures = LockedStrings()
+        let completed = DispatchGroup()
+        let queue = DispatchQueue(
+            label: "ImageStoreTests.independent-stores",
+            attributes: .concurrent
+        )
+
+        queue.suspend()
+        for index in 0..<saveCount {
+            completed.enter()
+            queue.async {
+                defer { completed.leave() }
+                do {
+                    savedURLs.append(try stores[index].save(data: inputs[index]))
+                } catch {
+                    failures.append(String(describing: error))
+                }
+            }
+        }
+        queue.resume()
+
+        XCTAssertEqual(completed.wait(timeout: .now() + 10), .success)
+        XCTAssertEqual(failures.values, [])
+
+        let urls = savedURLs.values
+        XCTAssertEqual(urls.count, saveCount)
+        XCTAssertEqual(Set(urls).count, saveCount)
+
+        let contents = try FileManager.default.contentsOfDirectory(
+            at: folder,
+            includingPropertiesForKeys: nil
+        )
+        XCTAssertEqual(contents.count, saveCount, "Staging files must always be cleaned up")
+
+        let savedWidths = try Set(urls.map { url -> Int in
+            guard let width = NSImage(contentsOf: url)?.representations.first?.pixelsWide else {
+                throw TestError.couldNotDecode(url)
+            }
+            return width
+        })
+        XCTAssertEqual(savedWidths, Set(1...saveCount))
+    }
+
+    func testIndependentStoreNeverReplacesAnExistingDestination() throws {
+        let folder = temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let fixedDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let firstStore = ImageStore(folder: folder, now: { fixedDate })
+        let existingURL = try firstStore.save(data: Self.onePixelPNG)
+        let existingData = try Data(contentsOf: existingURL)
+
+        let secondStore = ImageStore(folder: folder, now: { fixedDate })
+        let secondURL = try secondStore.save(data: Self.png(width: 2))
+
+        XCTAssertNotEqual(secondURL, existingURL)
+        XCTAssertEqual(try Data(contentsOf: existingURL), existingData)
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(
+                at: folder,
+                includingPropertiesForKeys: nil
+            ).count,
+            2
+        )
+    }
+
     private func temporaryFolder() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("PhoneSnapTests-\(UUID().uuidString)", isDirectory: true)
@@ -96,6 +176,29 @@ final class ImageStoreTests: XCTestCase {
         trailer<</Root 1 0 R>>
         %%EOF
         """.utf8)
+
+    private static func png(width: Int) throws -> Data {
+        guard let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: width,
+            pixelsHigh: 1,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: width * 4,
+            bitsPerPixel: 32
+        ), let data = bitmap.representation(using: .png, properties: [:]) else {
+            throw TestError.couldNotCreatePNG(width)
+        }
+        return data
+    }
+
+    private enum TestError: Error {
+        case couldNotCreatePNG(Int)
+        case couldNotDecode(URL)
+    }
 }
 
 private final class LockedURLs: @unchecked Sendable {
@@ -111,6 +214,23 @@ private final class LockedURLs: @unchecked Sendable {
     func append(_ url: URL) {
         lock.lock()
         storage.append(url)
+        lock.unlock()
+    }
+}
+
+private final class LockedStrings: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [String] = []
+
+    var values: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+
+    func append(_ value: String) {
+        lock.lock()
+        storage.append(value)
         lock.unlock()
     }
 }
