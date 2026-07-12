@@ -7,12 +7,16 @@ The implemented iPhone workflow in this milestone is explicit and local:
 1. Start `PhoneSnap.Windows.exe`.
 2. Allow it through Windows Firewall on **Private networks only** if prompted.
 3. Open **Open iPhone Upload Page...** from the PhoneSnap tray icon.
-4. Scan the locally generated QR code with the iPhone Camera.
-5. In Safari, select one or more screenshots and upload them.
+4. If the setup dialog lists several network addresses, choose the Wi-Fi or
+   Ethernet network shared with the iPhone.
+5. Scan the locally generated QR code with the iPhone Camera.
+6. In Safari, select one or more screenshots and upload them.
 
-Each accepted image is decoded and normalized to PNG, saved under
-`Pictures\PhoneSnap`, placed on the Windows clipboard as both an image and a
-file, and added to a topmost draggable recent-images panel.
+Safari converts browser-decodable input to PNG, checks the converted PNG
+against the 32 MiB limit, and uploads it as a raw `image/png` request. Each
+accepted image is decoded and normalized in a short-lived worker process,
+saved under `Pictures\PhoneSnap`, placed on the Windows clipboard as both an
+image and a file, and added to a topmost draggable recent-images panel.
 
 The portable tests and both RID cross-builds pass on the macOS development
 host, but the physical Windows+iPhone checklist has not run yet, so this is not
@@ -45,11 +49,14 @@ dotnet test tests/PhoneSnap.Core.Tests/PhoneSnap.Core.Tests.csproj `
   --configuration Release --no-restore
 dotnet build src/PhoneSnap.Windows/PhoneSnap.Windows.csproj `
   --configuration Release --runtime win-x64 --no-restore
+dotnet build src/PhoneSnap.Windows/PhoneSnap.Windows.csproj `
+  --configuration Release --runtime win-arm64 --no-restore
 ```
 
-The portable core tests also run on macOS or Linux with .NET 10. The WinForms,
-DPAPI, Windows image decoder, clipboard, QR dialog, and drag UI require a
-Windows run.
+The committed lock graph contains only `win-x64` and `win-arm64`; restoring it
+on macOS or Linux does not add the build host's RID. The portable core tests
+also run on those hosts with .NET 10. The WinForms, DPAPI, Windows image
+decoder, clipboard, QR dialog, and drag UI still require a Windows run.
 
 ## Publish portable ZIPs
 
@@ -72,14 +79,32 @@ Pairing state is stored under `%LOCALAPPDATA%\PhoneSnap`. The bearer token is
 encrypted for the current Windows user with DPAPI. Pair IDs and tokens are not
 advertised over Bonjour, DNS-SD, or analytics.
 
+## Network and processing behavior
+
+PhoneSnap ranks active IPv4 candidates by physical/private LAN suitability,
+gateway availability, and the Windows effective default-route metric (route
+plus interface cost). Likely VPN and virtual adapters rank behind suitable
+Wi-Fi and Ethernet interfaces. When more than one candidate remains, the setup
+dialog provides an explicit selector and regenerates the setup URL and QR code
+for the selected address.
+
+PNG normalization runs by relaunching `PhoneSnap.Windows.exe` in a dedicated
+worker mode for each image. Request cancellation, the 30-second deadline, or
+receiver shutdown terminates that worker process tree, so a synchronous
+Windows decoder cannot keep the receiver or shutdown blocked indefinitely.
+Worker input, output, and diagnostics are bounded, and no destination file is
+committed until the returned PNG passes validation.
+
+**Copy address** uses the same bounded clipboard retry policy as received
+images. If another process keeps the clipboard busy, PhoneSnap reports that
+the address was not copied instead of failing through the UI event loop.
+
 ## Current limitations
 
 - Safari selection is manual; taking a screenshot does not notify Windows.
-- The setup dialog chooses the preferred active LAN IPv4 address. On a PC with
-  several active adapters, temporarily disable an unreachable VPN/virtual
-  adapter if the iPhone cannot open the page.
 - Protocol-v1 portable input is PNG. The setup page converts browser-decodable
-  non-PNG selections to PNG before upload. If an HDR HEIC cannot be decoded by
-  Safari, switch iPhone screen capture to SDR and retry.
+  non-PNG selections before upload and rejects a converted PNG over 32 MiB. If
+  an HDR HEIC cannot be decoded by Safari, switch iPhone screen capture to SDR
+  and retry.
 - Windows-specific UI and physical iPhone behavior still require manual
   hardware verification; CI cannot validate the firewall or phone picker.

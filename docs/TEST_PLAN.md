@@ -26,6 +26,11 @@ The two WinForms builds prove both target graphs compile; running DPAPI, the
 Windows decoder, clipboard, QR dialog, firewall flow, and drag UI requires
 Windows.
 
+From a clean checkout, the locked restore must leave every
+`packages.lock.json` unchanged on Windows, macOS, and Linux. The Windows host
+lock must contain `win-x64` and `win-arm64`, with no RID inherited from the
+machine performing the restore.
+
 ## Wired End-to-End
 
 1. Launch the app.
@@ -146,42 +151,58 @@ PC.
    running without changing the first instance's pairing credentials.
 3. If Windows Firewall prompts, allow the app on **Private networks only** and
    confirm its inbound rule does not allow the Public profile.
-4. Open the tray menu and confirm the receiver reports ready on the expected
-   LAN IPv4 address.
+4. With Wi-Fi or Ethernet plus a VPN/virtual adapter active, open the tray menu
+   and setup dialog. Confirm the recommended address favors the suitable
+   private physical interface and lower effective default-route metric (route
+   plus interface cost). If several addresses remain, select the network shared
+   with the iPhone and confirm the displayed URL and QR update immediately.
 5. Choose **Open iPhone Upload Page...** and scan the QR with an iPhone on the
    same trusted LAN.
 6. Confirm Safari opens `/pair/<pairId>` without displaying the bearer token in
    the address bar.
 7. Choose several SDR screenshots from Photos or Files and upload them.
-8. Include one browser-decodable non-PNG image; confirm the page converts it
-   and the receiver stores a normalized PNG.
-9. Confirm every file gets an independent success/failure result and one failed
+8. Include one browser-decodable non-PNG image; confirm the page converts it,
+   checks the converted PNG size, sends it as a raw `image/png` request, and
+   the receiver stores a normalized PNG.
+9. Select a source smaller than 32 MiB whose converted PNG is larger than 32
+   MiB; confirm the page rejects it before making an upload request. Confirm a
+   valid near-limit PNG is sent without multipart framing.
+10. Confirm every file gets an independent success/failure result and one failed
    item does not stop the remaining batch.
-10. Confirm generated filenames appear under
+11. Confirm generated filenames appear under
    `%USERPROFILE%\Pictures\PhoneSnap` or `PHONESNAP_DIR`, with no sender
    filename reuse or overwrite.
-11. Confirm the latest screenshot pastes as an image and file, and each card in
+12. Confirm the latest screenshot pastes as an image and file, and each card in
     **Recent PhoneSnap Screenshots** drags into Explorer and at least one target
     agent application.
-12. Upload at least 20 large valid screenshots and confirm Task Manager does
+13. Upload at least 20 large valid screenshots and confirm Task Manager does
     not show unbounded growth from retained full-resolution previews.
-13. Hold the Windows clipboard open from another process during one upload and
+14. Hold the Windows clipboard open from another process during one upload and
     confirm PhoneSnap reports that the file was saved but the clipboard is
     busy.
-14. Change Wi-Fi/DHCP address while PhoneSnap runs; confirm the setup QR updates
+15. While the clipboard is still held, choose **Copy address**. Confirm
+    PhoneSnap performs a bounded retry, reports that the address was not
+    copied, and remains responsive; release the clipboard and confirm retrying
+    the action succeeds.
+16. Change Wi-Fi/DHCP address while PhoneSnap runs; confirm the setup QR updates
     and a newly opened page reaches the receiver without restarting the app.
-15. Start once with no usable LAN adapter; confirm PhoneSnap does not present a
+17. Start once with no usable LAN adapter; confirm PhoneSnap does not present a
     loopback QR and enables setup after the private LAN becomes available.
-16. Close and reopen the setup dialog; confirm the current QR and page work.
-17. Repeat with Windows Firewall access removed and confirm the failure is
+18. Close and reopen the setup dialog; confirm the current QR and page work.
+19. Repeat with Windows Firewall access removed and confirm the failure is
     understandable without affecting saved files or app shutdown.
+20. Quit while a large upload is decoding and confirm both the receiver and
+    its `--phonesnap-png-worker` child exit promptly, with no partial PNG saved.
 
 The automated .NET suite covers pairing persistence/rotation/corruption,
 pre-decode PNG dimension limits, collision-safe concurrent storage, setup-page
-CSP and uploader shape, exact lowercase protocol JSON, raw and multipart PNG,
+CSP, converted-PNG size enforcement, raw `image/png` uploader shape, address
+ranking, exact lowercase protocol JSON, raw and multipart protocol input,
 authentication-before-decode, query-token rejection, framing errors, corrupt
-PNG rejection, unsupported transfer encoding, and `Expect: 100-continue`.
-It does not replace the physical steps above.
+PNG rejection, unsupported transfer encoding, `Expect: 100-continue`, and
+worker termination/reaping on both the request deadline and receiver shutdown.
+It does not replace the physical steps above or exercise WinForms clipboard
+contention.
 
 HDR screenshots can be HEIC on current iOS releases. Test both an SDR PNG and
 an HDR selection. If Safari cannot decode the HDR image, the page should mark

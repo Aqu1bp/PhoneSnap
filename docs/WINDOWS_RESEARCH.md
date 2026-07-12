@@ -12,14 +12,18 @@ beta and becomes supported only after the physical checklist in
 
 1. PhoneSnap for Windows starts a receiver that implements
    [`PROTOCOL.md`](PROTOCOL.md).
-2. The Windows app displays the capability-bearing local setup URL.
+2. The Windows app ranks active LAN addresses and displays the
+   capability-bearing setup URL, with an explicit address chooser when several
+   candidates remain.
 3. The user opens that page in Safari on an iPhone on the same trusted LAN.
 4. The page uses a file picker to let the user explicitly select one or more
    screenshots from Photos.
-5. The page sends one selected image per authenticated protocol-v1 request.
-6. The Windows receiver validates and normalizes the image, saves it with a
-   generated name, writes it to the Windows clipboard, and surfaces it in the
-   recent-image UI.
+5. The page converts browser-decodable input when needed, validates the final
+   PNG size, and sends one raw `image/png` body per authenticated protocol-v1
+   request.
+6. The Windows receiver validates and normalizes the image in a killable
+   same-executable worker, saves it with a generated name, writes it to the
+   Windows clipboard, and surfaces it in the recent-image UI.
 
 This is intentionally a manual batch path. It does not claim that pressing the
 iPhone screenshot buttons automatically notifies Windows.
@@ -40,10 +44,11 @@ This gives the beta milestone a public, vendor-neutral way to request an
 explicit batch selection without phone-side code or an undocumented API.
 
 The page is a platform-specific setup extension, not a change to protocol v1.
-It must upload each selected file independently with `Content-Length` and the
-bearer token in `Authorization`, and it must display success or failure for
-each file. It must not put the token in a URL, log, filename, analytics event,
-or browser storage.
+It must upload each selected file independently as raw `image/png` with
+`Content-Length` and the bearer token in `Authorization`, validate the final
+PNG against the 32 MiB limit after any conversion, and display success or
+failure for each file. It must not put the token in a URL, log, filename,
+analytics event, or browser storage.
 
 ### The existing Shortcut cannot simply be generated on Windows
 
@@ -102,13 +107,19 @@ implementation boundaries, not a physical support claim:
 - Random persisted pair ID and high-entropy bearer token.
 - A local setup page gated by the pair ID.
 - A Safari file input restricted to images and allowing a batch selection.
-- One authenticated upload request per selected image, with bounded sequential
-  processing and visible per-file progress.
+- One raw `image/png` upload request per selected image, with final converted
+  size validation, bounded sequential processing, and visible per-file
+  progress.
 - The same 32 MiB request limit, decoded-pixel limit, generated filenames, and
   fail-closed image validation as the macOS receiver.
+- GDI+ normalization isolated in a same-executable worker process that can be
+  terminated on request deadline or receiver shutdown before any file commit.
+- LAN candidate ranking based on physical/private suitability and Windows
+  effective default-route metrics (route plus interface cost), plus an explicit
+  setup-address chooser.
 - Normalized PNG output in the user's PhoneSnap pictures folder.
-- Windows clipboard image/file data and a recent batch UI suitable for paste or
-  drag into an agent.
+- Windows clipboard image/file data, bounded retry/reporting for setup-address
+  copy, and a recent batch UI suitable for paste or drag into an agent.
 - Clear errors for unreachable LAN service, bad credentials, unsupported
   formats, oversized input, and storage failure.
 

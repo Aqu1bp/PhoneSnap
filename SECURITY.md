@@ -50,9 +50,13 @@ default). Protections and their limits:
   capped at 50 million pixels, authentication happens before body buffering,
   only four simultaneous connections are admitted, and incomplete headers time
   out after 5 seconds. Windows applies a linked 30-second deadline across body
-  reading, the processing queue, and decode/storage; cancellation is checked
-  again before a file is committed. Completed image decoding and storage run
-  serially, so their memory use is bounded.
+  reading, the processing queue, and decode/storage. Windows performs each
+  synchronous GDI+ normalization in a short-lived worker mode of the same
+  executable; request cancellation, deadline expiry, and receiver shutdown
+  terminate the worker process tree. Worker standard input, output, and
+  diagnostics are bounded, returned bytes are revalidated, and cancellation is
+  checked again before a file is committed. Completed normalization and storage
+  run serially, so their memory use is bounded.
   The macOS receiver may evict an older unauthenticated header-waiting session;
   the Windows Kestrel host instead stops admitting connections at its cap.
 - **Windows Safari setup page.** The Windows page has a nonce-restricted
@@ -60,7 +64,10 @@ default). Protections and their limits:
   and does not put the token in a URL, browser storage, filename, analytics, or
   log. The token still appears in the page response and in each plain-HTTP
   `Authorization` header, so a LAN observer can recover it. Files are selected
-  explicitly by the user; the page cannot watch Photos in the background.
+  explicitly by the user; the page cannot watch Photos in the background. It
+  checks the converted PNG against the 32 MiB limit and sends a raw
+  `image/png` body, so multipart framing cannot push an otherwise accepted PNG
+  beyond the request cap.
 - **macOS signing route resource use.** The Shortcut download route spawns a
   `/usr/bin/shortcuts sign` subprocess and is gated only by the pair ID.
   Only one signing job is admitted at a time; concurrent requests receive
@@ -73,11 +80,14 @@ default). Protections and their limits:
   same Windows user can still ask DPAPI to decrypt it. Neither design protects
   against a process already acting with the user's authority.
 - **Windows firewall scope.** Allow the Windows receiver only on **Private**
-  network profiles, never public ones. VPN and virtual adapters can also expose
-  or misroute the selected LAN address.
+  network profiles, never public ones. PhoneSnap ranks likely physical,
+  private Wi-Fi/Ethernet candidates ahead of VPN and virtual adapters and uses
+  the Windows effective default-route metric (route plus interface cost) as a
+  tie-breaker, but the setup dialog's explicit address choice does not narrow
+  the listener or firewall rule.
 - **Windows interface scope.** The beta Kestrel listener binds all IPv4
   interfaces (`0.0.0.0`) so it can survive DHCP and adapter changes; the QR
-  advertises only the currently preferred LAN address. PhoneSnap does not
+  advertises only the ranked or user-selected LAN address. PhoneSnap does not
   override an existing Windows Firewall rule. Restrict the inbound rule to the
   Private profile and, where practical, the local subnet; remove any old rule
   that allows PhoneSnap on Public networks or every remote address.

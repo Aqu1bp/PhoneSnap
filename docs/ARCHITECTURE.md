@@ -38,10 +38,13 @@ WinForms Application
 ├── PhoneSnapApplicationContext
 │   ├── NotifyIcon tray menu
 │   ├── SetupForm
-│   │   └── locally rendered setup QR
+│   │   ├── locally rendered setup QR
+│   │   └── ranked network-address chooser
 │   ├── RecentImagesForm
 │   │   └── draggable FileDrop image cards
-│   └── ClipboardWriter
+│   ├── ClipboardWriter
+│   └── LanAddressProvider
+│       └── Windows effective route metrics
 ├── ReceiverServer (PhoneSnap.Core)
 │   ├── Kestrel HTTP/1.1 listener
 │   ├── Safari batch setup page
@@ -49,13 +52,20 @@ WinForms Application
 ├── PairingStore (PhoneSnap.Core)
 │   └── DpapiSecretProtector (Windows host)
 └── ImageStore (PhoneSnap.Core)
-    └── WindowsPngNormalizer (Windows host)
+    └── WorkerProcessPngNormalizer (PhoneSnap.Core)
+        └── PhoneSnap.Windows.exe --phonesnap-png-worker
+            └── WindowsPngNormalizer (GDI+)
 ```
 
 `PhoneSnap.Core` targets plain .NET 10 so pairing, PNG header limits, atomic
 storage, request handling, and protocol conformance can be tested on macOS,
 Linux, or Windows. The `net10.0-windows` host supplies DPAPI, Windows image
 decoding, clipboard formats, QR rendering, and WinForms UI.
+
+The Windows project declares only `win-x64` and `win-arm64` runtime graphs.
+Self-contained and single-file settings activate when a build or publish
+supplies an explicit `RuntimeIdentifier`; a host-independent locked restore
+therefore cannot add the SDK host's RID to the committed lockfile.
 
 The Windows beta listens with Kestrel on all IPv4 interfaces on port `8472` by
 default; Windows Firewall is the interface/profile enforcement boundary. It
@@ -65,13 +75,23 @@ serves:
 - `POST /api/v1/upload/<pairId>`: the stable protocol-v1 upload endpoint.
 
 The tray setup dialog encodes the capability-bearing setup URL in a QR code.
+`LanAddressProvider` ranks usable addresses using likely physical/private LAN
+suitability, gateway presence, and the Windows effective default-route metric
+(route plus interface cost); likely VPN and virtual interfaces rank later.
+`SetupForm` exposes all candidates when there is a choice, and selecting one
+immediately regenerates the URL and QR.
+
 Safari requires an explicit file selection, converts browser-decodable
-non-PNG images to PNG on a canvas, and sends each selection independently.
-The bearer token exists in the returned page's JavaScript and request header,
+non-PNG images to PNG on a canvas, rejects the converted PNG if it exceeds 32
+MiB, and sends each selection independently as a raw `image/png` body. The
+bearer token exists in the returned page's JavaScript and request header,
 never in the URL or browser storage. The receiver authenticates and bounds the
-request before decode, validates declared dimensions before invoking the
-Windows decoder, normalizes again to PNG, and claims generated filenames
-without overwriting an existing file.
+request before decode, validates declared dimensions, and claims generated
+filenames without overwriting an existing file. GDI+ runs in a short-lived
+worker mode of the same executable over bounded standard-input/output pipes.
+Request, deadline, and receiver-shutdown cancellation force-terminate and
+reap that process rather than relying on cooperative cancellation inside
+native image decoding; the parent revalidates the worker output before commit.
 
 Windows USB/WPD is deliberately not connected to this process. The separate
 native probe under `tools/windows/WpdProbe` measures public WPD device and event
@@ -150,14 +170,19 @@ Wireless Shortcut uploads use a separate batch presentation path:
 
 Windows Safari uploads use the portable receiver pipeline:
 
-1. The setup page posts one PNG to `ReceiverServer` per selected file.
-2. `ReceiverServer` authenticates and extracts the bounded raw or multipart
-   body, then serializes decode/storage work.
-3. `ImageStore` validates PNG dimensions before and after
-   `WindowsPngNormalizer`, then atomically places a generated filename under
-   `%USERPROFILE%\Pictures\PhoneSnap` unless `PHONESNAP_DIR` overrides it.
-4. `UploadDelivered` marshals the saved path to the WinForms thread.
-5. `ClipboardWriter` publishes image and file data, while `RecentImagesForm`
+1. The setup page converts when needed, checks the final PNG size, and posts
+   one raw `image/png` body to `ReceiverServer` per selected file.
+2. `ReceiverServer` authenticates and extracts the bounded body, then
+   serializes decode/storage work under the linked request deadline.
+3. `ImageStore` validates PNG dimensions, then
+   `WorkerProcessPngNormalizer` sends the bounded input to the executable's
+   isolated GDI+ worker. Deadline or shutdown cancellation kills and reaps the
+   worker before releasing serialized processing.
+4. The parent validates the bounded result again and atomically places a
+   generated filename under `%USERPROFILE%\Pictures\PhoneSnap` unless
+   `PHONESNAP_DIR` overrides it.
+5. `UploadDelivered` marshals the saved path to the WinForms thread.
+6. `ClipboardWriter` publishes image and file data, while `RecentImagesForm`
    adds a topmost card that drags with the standard Windows `FileDrop` format.
 
 ## UI
@@ -180,7 +205,10 @@ Windows Safari uploads use the portable receiver pipeline:
 
 On Windows, `NotifyIcon` exposes receiver status, Safari setup, the most recent
 screenshot, the save folder, and quit. `SetupForm` renders the setup QR locally
-and `RecentImagesForm` keeps up to 20 draggable images in a topmost horizontal
+and shows an address selector when several LAN candidates exist.
+`ClipboardWriter` applies a bounded retry to both delivered images and **Copy
+address**; the latter shows an explicit warning if contention persists.
+`RecentImagesForm` keeps up to 20 draggable images in a topmost horizontal
 strip. These WinForms surfaces require a real Windows desktop session; the
 portable core tests do not exercise clipboard, firewall, QR scanning, or drag
 targets.

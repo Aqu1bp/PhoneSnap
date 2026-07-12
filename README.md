@@ -119,13 +119,16 @@ Existing installed PhoneSnap Shortcuts should be removed and reinstalled from th
 1. Start `PhoneSnap.Windows.exe` on Windows 11.
 2. If Windows Firewall asks, allow PhoneSnap on **Private networks only**.
 3. Open the PhoneSnap tray icon and choose **Open iPhone Upload Page...**.
-4. Scan the QR code with the iPhone Camera.
-5. In Safari, choose one or more screenshots from Photos or Files and upload
+4. If several network addresses are listed, choose the Wi-Fi or Ethernet
+   network shared with the iPhone.
+5. Scan the QR code with the iPhone Camera.
+6. In Safari, choose one or more screenshots from Photos or Files and upload
    them.
 
 The page uploads one image per authenticated protocol-v1 request. It converts
-browser-decodable non-PNG selections to PNG before sending; the receiver then
-decodes and normalizes each accepted image again, saves it under
+browser-decodable non-PNG selections to PNG, checks the converted size, and
+sends the PNG as a raw `image/png` body. The receiver decodes and normalizes
+each accepted image in a killable worker process, saves it under
 `Pictures\PhoneSnap`, copies it to the Windows clipboard, and adds it to a
 topmost draggable recent-images panel. See [Windows + iPhone research](docs/WINDOWS_RESEARCH.md)
 for the boundary between this implemented beta and USB research.
@@ -240,8 +243,9 @@ iPhone Safari on Windows
   user scans the Windows tray app's local setup QR
     -> Safari explicitly selects screenshots from Photos or Files
     -> setup page converts browser-decodable input to PNG when necessary
-    -> POSTs each image to the Windows protocol-v1 receiver
-    -> Windows normalizes and saves PNGs, updates the clipboard
+    -> rejects converted PNGs over 32 MiB and POSTs raw image/png
+    -> a bounded child process normalizes each PNG
+    -> Windows saves PNGs and updates the clipboard
     -> Windows shows the draggable recent-images panel
 ```
 
@@ -263,7 +267,7 @@ iPhone Safari on Windows
 | Shortcut used to work but now fails silently | If it was installed from the IP address URL, the Mac's IP likely changed. Rerun setup and re-add the Shortcut; prefer the `.local` hostname URL when it loads. |
 | Shortcut runs but nothing appears on the Mac | Confirm screenshots exist in Photos, both devices are on the same LAN, and Shortcuts has local-network permission (iPhone Settings → Privacy & Security → Local Network). |
 | Shortcut download fails | Run from terminal with `swift run PhoneSnap`; the setup route reports `/usr/bin/shortcuts sign` errors instead of crashing. If signing fails or times out on a fresh Mac, open the Shortcuts app once and retry. |
-| Windows setup page does not load on the iPhone | Keep the tray app running, use the same LAN, allow PhoneSnap on Windows **Private networks**, and retry the current QR. VPN or virtual adapters can cause the app to choose an unreachable IPv4 address. |
+| Windows setup page does not load on the iPhone | Keep the tray app running, use the same LAN, and allow PhoneSnap on Windows **Private networks**. Reopen the setup dialog and, when its network selector appears, choose the Wi-Fi or Ethernet address shared with the iPhone before scanning the refreshed QR. |
 | A selected iPhone image fails in Safari | Retry with an SDR screenshot. Current iPhones can store HDR screenshots as HEIC, and browser/Windows codec support varies. The remaining batch continues and shows a per-file result. |
 
 ## Known Limitations
