@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import Darwin
 import ImageIO
 
 final class ImageStore: @unchecked Sendable {
@@ -15,8 +16,13 @@ final class ImageStore: @unchecked Sendable {
 
     let folder: URL
     private let saveLock = NSLock()
+    private let now: @Sendable () -> Date
 
-    init(folder overrideFolder: URL? = nil) {
+    init(
+        folder overrideFolder: URL? = nil,
+        now: @escaping @Sendable () -> Date = { Date() }
+    ) {
+        self.now = now
         let envPath = ProcessInfo.processInfo.environment["PHONESNAP_DIR"]
         if let overrideFolder {
             folder = overrideFolder
@@ -32,14 +38,14 @@ final class ImageStore: @unchecked Sendable {
 
     func save(data: Data) throws -> URL {
         // Image decoding is intentionally serialized. Wired, ADB, and wireless
-        // callbacks arrive on different queues; serializing bounds aggregate
-        // decoder memory and makes destination allocation collision-free.
+        // callbacks arrive on different queues; serializing bounds decoder
+        // memory within this store. Destination allocation itself is guarded by
+        // an OS-level exclusive rename so separate stores/processes cannot race.
         saveLock.lock()
         defer { saveLock.unlock() }
 
         let pngData = try normalize(data: data)
-        let url = nextAvailableURL()
-        try pngData.write(to: url, options: .atomic)
+        let url = try installWithoutOverwriting(pngData)
         Log.info("Saved \(url.lastPathComponent) (\(pngData.count) bytes)")
         return url
     }
@@ -71,19 +77,63 @@ final class ImageStore: @unchecked Sendable {
         // arrive within the same second (e.g. via the cable bridge during a
         // catalog refresh, or two rapid taps).
         fmt.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss.SSS"
-        return "Screenshot \(fmt.string(from: Date())).png"
+        return "Screenshot \(fmt.string(from: now())).png"
     }
 
-    private func nextAvailableURL() -> URL {
-        let preferred = folder.appendingPathComponent(filename(), isDirectory: false)
-        guard FileManager.default.fileExists(atPath: preferred.path) else { return preferred }
+    /// Installs a fully-written staging file with a no-overwrite rename. Unlike
+    /// checking `fileExists` before `Data.write(.atomic)`, `RENAME_EXCL` makes
+    /// collision detection and the final rename one filesystem operation shared
+    /// by every ImageStore instance and process. The destination therefore never
+    /// exposes a placeholder or a partially-written PNG.
+    private func installWithoutOverwriting(_ data: Data) throws -> URL {
+        let stagingURL = folder.appendingPathComponent(
+            ".phonesnap-staging-\(UUID().uuidString)",
+            isDirectory: false
+        )
+        try data.write(to: stagingURL, options: .atomic)
+        defer { try? FileManager.default.removeItem(at: stagingURL) }
 
+        let preferred = folder.appendingPathComponent(filename(), isDirectory: false)
         let base = preferred.deletingPathExtension().lastPathComponent
-        for suffix in 2...9_999 {
-            let candidate = folder.appendingPathComponent("\(base) (\(suffix)).png", isDirectory: false)
-            if !FileManager.default.fileExists(atPath: candidate.path) { return candidate }
+
+        var suffix = 1
+        while true {
+            let candidate: URL
+            if suffix == 1 {
+                candidate = preferred
+            } else if suffix <= 9_999 {
+                candidate = folder.appendingPathComponent("\(base) (\(suffix)).png", isDirectory: false)
+            } else {
+                candidate = folder.appendingPathComponent(
+                    "\(base) \(UUID().uuidString).png",
+                    isDirectory: false
+                )
+            }
+
+            let result = stagingURL.withUnsafeFileSystemRepresentation { stagingPath in
+                candidate.withUnsafeFileSystemRepresentation { candidatePath in
+                    renameatx_np(
+                        AT_FDCWD,
+                        stagingPath,
+                        AT_FDCWD,
+                        candidatePath,
+                        UInt32(RENAME_EXCL)
+                    )
+                }
+            }
+            if result == 0 { return candidate }
+
+            let errorCode = errno
+            if errorCode == EEXIST {
+                suffix += 1
+                continue
+            }
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(errorCode),
+                userInfo: [NSFilePathErrorKey: candidate.path]
+            )
         }
-        return folder.appendingPathComponent("\(base) \(UUID().uuidString).png", isDirectory: false)
     }
 
     /// Decode incoming bytes, convert anything that loads to PNG.
