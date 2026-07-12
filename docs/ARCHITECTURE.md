@@ -1,6 +1,6 @@
 # ARCHITECTURE - PhoneSnap
 
-PhoneSnap is a single-process macOS menu bar app. Its primary path watches a trusted USB-connected iPhone through ImageCaptureCore, downloads new screenshot-like camera-roll items, saves them as PNG files, copies them to the pasteboard, and presents a floating wired thumbnail. It also runs a local HTTP receiver for the generated wireless Shortcut batch fallback.
+PhoneSnap is a single-process macOS menu bar app. Its primary path watches a trusted USB-connected iPhone through ImageCaptureCore. An optional Android adapter discovers authorized ADB devices and captures their current displays on explicit menu actions. Both paths save PNG files, copy them to the pasteboard, and present a floating single thumbnail. The app also runs a local HTTP receiver for the generated wireless Shortcut batch fallback.
 
 ## Process Model
 
@@ -10,6 +10,9 @@ NSApplication
 ├── StatusItemController
 ├── CameraBridge
 │   └── ImageCaptureCore device/session callbacks
+├── AndroidADBBridge
+│   ├── adb device polling
+│   └── user-triggered screencap
 ├── WirelessReceiver
 │   └── local HTTP setup, Shortcut download, and upload routes
 ├── WirelessSetupWindowController
@@ -35,6 +38,26 @@ To avoid importing the existing camera roll, it records a startup threshold and 
 
 Matching files are downloaded to a temporary path, read into memory, removed from temp, and delivered to the app pipeline.
 
+## AndroidADBBridge
+
+`AndroidADBBridge` is an optional capture source. It locates `adb` through an
+explicit override, Android SDK environment variables, the default Android
+Studio SDK, the process path, and common Homebrew locations. Every three
+seconds it runs `adb devices -l` on a serial queue and publishes ready,
+unauthorized, offline, unavailable, or failed state to the menu.
+
+The user selects **Capture Android Screen** for one ready device, or chooses a
+device from a submenu when several are ready. The bridge invokes `adb` directly
+with `-s <serial> exec-out screencap -p`; it never interpolates a command into a
+shell. Standard output and error are drained concurrently with byte limits,
+commands time out, and output must have a PNG signature before delivery.
+
+ADB absence and failure are nonfatal and cannot stop the iPhone or wireless
+paths. Polling invokes `adb devices -l`, which may implicitly start ADB's
+shared loopback server and use the daemon's own mDNS discovery for wireless
+debugging. PhoneSnap does not bundle ADB, explicitly configure or stop that
+daemon, or attempt nonportable automatic Android camera-roll monitoring.
+
 ## WirelessReceiver
 
 `WirelessReceiver` starts a local Network.framework TCP listener on `PHONESNAP_WIRELESS_PORT` or port `8472`. Bind failures are logged and shown in the menu/setup window, but wired mode still starts.
@@ -49,11 +72,16 @@ The receiver caps request bodies at 32 MB, accepts raw image bodies and multipar
 
 `WirelessPairing` persists a short random pair ID and high-entropy bearer token in `UserDefaults`, so installed Shortcuts keep working across app restarts.
 
+The portable sender/receiver boundary is specified in
+[`PROTOCOL.md`](PROTOCOL.md). The setup page and signed Shortcut download are
+macOS-specific extensions; cross-platform senders depend only on the upload
+route.
+
 `WirelessShortcutGenerator` builds the Shortcut plist with the upload URL/token baked in and signs it with `/usr/bin/shortcuts sign --mode anyone`. The generated Shortcut asks Photos for the latest screenshot batch, repeats over it, and posts one image per request. Signing errors are served as clear HTTP `500` responses.
 
 ## Image Pipeline
 
-Wired USB keeps the original single-thumbnail behavior:
+iPhone USB and Android ADB use the single-thumbnail behavior:
 
 1. `AppDelegate.deliver(data:source:)`
 2. `ImageStore.save(data:)`
@@ -73,6 +101,7 @@ Wireless Shortcut uploads use a separate batch presentation path:
 `StatusItemController` creates the menu bar item. The menu exposes:
 
 - current mode
+- Android/ADB status and capture action
 - wireless receiver status
 - set up wireless Shortcut
 - show last screenshot
@@ -89,9 +118,10 @@ Wireless Shortcut uploads use a separate batch presentation path:
 
 - `PHONESNAP_DIR`: override the save folder.
 - `PHONESNAP_WIRELESS_PORT`: override the wireless receiver port.
+- `PHONESNAP_ADB_PATH`: explicit path to the ADB executable.
 
 ## Wireless Scope
 
 The old GitHub/Gist rendezvous and direct `shortcuts://import-shortcut` QR flow are not part of the runtime. The current wireless setup uses a normal local HTTP setup page that serves a signed `PhoneSnap.shortcut`.
 
-Dev senders are deprecated/experimental and are not exposed in the main menu. The sender package folders remain as references, but the product path is USB automatic first and Wireless Shortcut Batch fallback second.
+Dev senders are deprecated/experimental and are not exposed in the main menu. The sender package folders remain as references. Current product paths are iPhone USB automatic capture, Android ADB explicit capture, and the iOS wireless Shortcut batch fallback.
