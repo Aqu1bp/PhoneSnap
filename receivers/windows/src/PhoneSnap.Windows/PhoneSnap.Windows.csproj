@@ -5,15 +5,15 @@
     <UseWindowsForms>true</UseWindowsForms>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <PublishSingleFile>true</PublishSingleFile>
+    <!-- Do not infer the restore host's RID; every supported publish supplies a Windows RID. -->
+    <PublishSingleFile Condition="'$(RuntimeIdentifier)' != ''">true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-    <SelfContained>true</SelfContained>
+    <SelfContained Condition="'$(RuntimeIdentifier)' != ''">true</SelfContained>
     <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../PhoneSnap.Core/PhoneSnap.Core.csproj" />
     <PackageReference Include="QRCoder" />
-    <PackageReference Include="System.Security.Cryptography.ProtectedData" />
   </ItemGroup>
 </Project>
