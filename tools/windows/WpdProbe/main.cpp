@@ -1,9 +1,9 @@
 #include <windows.h>
 
-#include <portabledevice.h>
-#include <portabledeviceapi.h>
-#include <portabledevicetypes.h>
 #include <propvarutil.h>
+#include <portabledeviceapi.h>
+#include <portabledevice.h>
+#include <portabledevicetypes.h>
 #include <wrl/client.h>
 
 #include <algorithm>
