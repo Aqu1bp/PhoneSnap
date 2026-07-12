@@ -28,6 +28,7 @@ public sealed class ReceiverServer : IAsyncDisposable
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
     private readonly object _addressGate = new();
     private WebApplication? _application;
+    private CancellationTokenSource? _runCancellation;
     private string? _advertisedHost;
     private Uri? _baseUri;
     private int _boundPort;
@@ -194,10 +195,12 @@ public sealed class ReceiverServer : IAsyncDisposable
         });
 
         var application = builder.Build();
-        application.Run(HandleRequestAsync);
+        var runCancellation = new CancellationTokenSource();
+        Volatile.Write(ref _runCancellation, runCancellation);
 
         try
         {
+            application.Run(HandleRequestAsync);
             await application.StartAsync(cancellationToken).ConfigureAwait(false);
             SetBoundPort(ResolveBoundPort(application));
             _application = application;
@@ -205,6 +208,14 @@ public sealed class ReceiverServer : IAsyncDisposable
         }
         catch (Exception exception)
         {
+            runCancellation.Cancel();
+            if (ReferenceEquals(
+                    Interlocked.CompareExchange(ref _runCancellation, null, runCancellation),
+                    runCancellation))
+            {
+                runCancellation.Dispose();
+            }
+
             SetBoundPort(0);
             ChangeState(new ReceiverState(ReceiverActivity.Failed, exception.Message));
             await application.DisposeAsync().ConfigureAwait(false);
@@ -216,8 +227,11 @@ public sealed class ReceiverServer : IAsyncDisposable
     {
         var application = _application;
         _application = null;
+        var runCancellation = Volatile.Read(ref _runCancellation);
+        runCancellation?.Cancel();
         if (application is null)
         {
+            DisposeRunCancellation(runCancellation);
             return;
         }
 
@@ -233,6 +247,7 @@ public sealed class ReceiverServer : IAsyncDisposable
             }
             finally
             {
+                DisposeRunCancellation(runCancellation);
                 SetBoundPort(0);
                 ChangeState(ReceiverState.Stopped);
             }
@@ -324,7 +339,10 @@ public sealed class ReceiverServer : IAsyncDisposable
             return;
         }
 
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
+        var runCancellationToken = Volatile.Read(ref _runCancellation)?.Token ?? CancellationToken.None;
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
+            context.RequestAborted,
+            runCancellationToken);
         timeout.CancelAfter(_options.RequestTimeout);
 
         byte[] imageBytes;
@@ -346,6 +364,10 @@ public sealed class ReceiverServer : IAsyncDisposable
         catch (InvalidDataException)
         {
             await WriteTextAsync(context, StatusCodes.Status400BadRequest, "malformed request body").ConfigureAwait(false);
+            return;
+        }
+        catch (OperationCanceledException) when (runCancellationToken.IsCancellationRequested)
+        {
             return;
         }
         catch (OperationCanceledException) when (!context.RequestAborted.IsCancellationRequested)
@@ -372,7 +394,8 @@ public sealed class ReceiverServer : IAsyncDisposable
             await WriteTextAsync(context, StatusCodes.Status415UnsupportedMediaType, "body is not a decodable PNG image").ConfigureAwait(false);
             return;
         }
-        catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+        catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested ||
+                                                   runCancellationToken.IsCancellationRequested)
         {
             return;
         }
@@ -591,6 +614,17 @@ public sealed class ReceiverServer : IAsyncDisposable
     {
         State = state;
         StateChanged?.Invoke(this, new ReceiverStateChangedEventArgs(state));
+    }
+
+    private void DisposeRunCancellation(CancellationTokenSource? runCancellation)
+    {
+        if (runCancellation is not null &&
+            ReferenceEquals(
+                Interlocked.CompareExchange(ref _runCancellation, null, runCancellation),
+                runCancellation))
+        {
+            runCancellation.Dispose();
+        }
     }
 
     private void RaiseUploadDelivered(UploadDeliveredEventArgs eventArgs)

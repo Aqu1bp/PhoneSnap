@@ -11,7 +11,7 @@ public sealed class ImageStoreTests
         using var temporary = new TemporaryDirectory();
         var store = new ImageStore(
             temporary.Path,
-            new ValidatingNormalizer(),
+            new ValidatingNormalizer(releaseAfterCalls: 8),
             new FixedTimeProvider(new DateTimeOffset(2026, 7, 11, 12, 34, 56, TimeSpan.Zero)));
 
         var saved = await Task.WhenAll(Enumerable.Range(0, 8)

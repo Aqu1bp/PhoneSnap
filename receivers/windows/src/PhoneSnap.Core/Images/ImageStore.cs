@@ -26,21 +26,18 @@ public sealed class ImageStore : IImageStore
 
     public string Folder => _folder;
 
-    public Task<SavedImage> SaveAsync(ReadOnlyMemory<byte> encodedImage, CancellationToken cancellationToken)
+    public async Task<SavedImage> SaveAsync(
+        ReadOnlyMemory<byte> encodedImage,
+        CancellationToken cancellationToken)
     {
         if (encodedImage.IsEmpty)
         {
             throw new PngValidationException("The upload body is empty.");
         }
 
-        return Task.Run(() => Save(encodedImage, cancellationToken), cancellationToken);
-    }
-
-    private SavedImage Save(ReadOnlyMemory<byte> encodedImage, CancellationToken cancellationToken)
-    {
         cancellationToken.ThrowIfCancellationRequested();
         _ = PngValidator.ValidateHeader(encodedImage.Span, _maximumPixelCount);
-        var normalized = _normalizer.NormalizePng(encodedImage);
+        var normalized = await _normalizer.NormalizePngAsync(encodedImage, cancellationToken).ConfigureAwait(false);
         _ = PngValidator.ValidateHeader(normalized, _maximumPixelCount);
         cancellationToken.ThrowIfCancellationRequested();
 

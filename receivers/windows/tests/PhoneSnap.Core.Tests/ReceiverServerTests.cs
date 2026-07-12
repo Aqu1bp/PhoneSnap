@@ -55,8 +55,10 @@ public sealed class ReceiverServerTests : IAsyncLifetime, IDisposable
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Contains("type=\"file\" multiple accept=\"image/*\"", html, StringComparison.Ordinal);
-        Assert.Contains("new FormData()", html, StringComparison.Ordinal);
-        Assert.Contains("file.size > maximumUploadBytes", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("new FormData()", html, StringComparison.Ordinal);
+        Assert.Contains("png.size > maximumUploadBytes", html, StringComparison.Ordinal);
+        Assert.Contains("'Content-Type': 'image/png'", html, StringComparison.Ordinal);
+        Assert.Contains("body: png", html, StringComparison.Ordinal);
         Assert.Contains("32 MiB upload limit", html, StringComparison.Ordinal);
         Assert.Contains($"const endpoint = \"/api/v1/upload/{PairId}\";", html, StringComparison.Ordinal);
         Assert.Contains(Token, html, StringComparison.Ordinal);

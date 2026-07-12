@@ -1,8 +1,10 @@
 using System.Diagnostics;
+using System.Net;
 using System.Net.NetworkInformation;
 using System.Runtime.InteropServices;
 using PhoneSnap.Core.Delivery;
 using PhoneSnap.Core.Images;
+using PhoneSnap.Core.Networking;
 using PhoneSnap.Core.Pairing;
 using PhoneSnap.Core.Receiver;
 using PhoneSnap.Windows.Platform;
@@ -22,6 +24,8 @@ internal sealed class PhoneSnapApplicationContext : ApplicationContext
     private readonly ToolStripMenuItem _setupItem;
     private readonly ToolStripMenuItem _showLastItem;
     private readonly NotifyIcon _trayIcon;
+    private IReadOnlyList<LanAddressCandidate> _lanAddressCandidates = [];
+    private IPAddress? _selectedAdvertisedAddress;
     private SetupForm? _setupForm;
     private RecentImagesForm? _recentImagesForm;
     private string? _lastFilePath;
@@ -30,12 +34,17 @@ internal sealed class PhoneSnapApplicationContext : ApplicationContext
     public PhoneSnapApplicationContext()
     {
         _configuration = AppConfiguration.Load();
+        _selectedAdvertisedAddress = IPAddress.TryParse(_configuration.AdvertisedHost, out var configuredAddress)
+            ? configuredAddress
+            : null;
         _pairingStore = new PairingStore(_configuration.PairingPath, new DpapiSecretProtector());
         var pairing = _pairingStore.LoadOrCreate();
         const long maximumPixels = PngValidator.DefaultMaximumPixelCount;
         _imageStore = new ImageStore(
             _configuration.SaveFolder,
-            new WindowsPngNormalizer(maximumPixels),
+            new WorkerProcessPngNormalizer(
+                new WindowsPngWorkerProcessFactory(),
+                maximumPixels),
             maximumPixelCount: maximumPixels);
         _receiver = new ReceiverServer(
             new ReceiverOptions
@@ -131,18 +140,27 @@ internal sealed class PhoneSnapApplicationContext : ApplicationContext
 
     private void RefreshAdvertisedAddress()
     {
-        string? host;
+        IReadOnlyList<LanAddressCandidate> candidates;
         try
         {
-            host = LanAddressProvider.GetPreferredIPv4()?.ToString();
+            candidates = LanAddressProvider.GetRankedIPv4Candidates();
         }
         catch (NetworkInformationException)
         {
-            host = null;
+            candidates = [];
         }
 
-        _receiver.UpdateAdvertisedHost(host);
-        OnUi(() => UpdateReceiverUi(_receiver.State));
+        OnUi(() => ApplyAdvertisedAddresses(candidates));
+    }
+
+    private void ApplyAdvertisedAddresses(IReadOnlyList<LanAddressCandidate> candidates)
+    {
+        _lanAddressCandidates = candidates;
+        _selectedAdvertisedAddress = LanAddressRanking.SelectPreferredAddress(
+            candidates,
+            _selectedAdvertisedAddress);
+        _receiver.UpdateAdvertisedHost(_selectedAdvertisedAddress?.ToString());
+        UpdateReceiverUi(_receiver.State);
     }
 
     private void UpdateReceiverUi(ReceiverState state)
@@ -159,7 +177,38 @@ internal sealed class PhoneSnapApplicationContext : ApplicationContext
         _setupItem.Enabled = state.Activity == ReceiverActivity.Ready && setupUri is not null;
         if (_setupForm is { IsDisposed: false })
         {
-            _setupForm.SetSetupUri(setupUri);
+            _setupForm.SetSetupState(setupUri, CreateSetupAddressChoices());
+        }
+    }
+
+    private SetupAddressChoice[] CreateSetupAddressChoices() =>
+        _lanAddressCandidates.Select((candidate, index) =>
+        {
+            var qualifier = (index == 0, candidate.IsLikelyVirtual) switch
+            {
+                (true, true) => " (recommended; virtual or VPN)",
+                (true, false) => " (recommended)",
+                (false, true) => " (virtual or VPN)",
+                _ => string.Empty,
+            };
+            return new SetupAddressChoice(
+                candidate.Address.ToString(),
+                $"{candidate.Address} — {candidate.InterfaceName}{qualifier}");
+        }).ToArray();
+
+    private void SelectAdvertisedAddress(string host)
+    {
+        foreach (var candidate in _lanAddressCandidates)
+        {
+            if (!candidate.Address.ToString().Equals(host, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            _selectedAdvertisedAddress = candidate.Address;
+            _receiver.UpdateAdvertisedHost(host);
+            UpdateReceiverUi(_receiver.State);
+            return;
         }
     }
 
@@ -225,8 +274,9 @@ internal sealed class PhoneSnapApplicationContext : ApplicationContext
         if (_setupForm is null || _setupForm.IsDisposed)
         {
             _setupForm = new SetupForm();
+            _setupForm.AddressSelected += SelectAdvertisedAddress;
         }
-        _setupForm.SetSetupUri(_receiver.SetupUri);
+        _setupForm.SetSetupState(_receiver.SetupUri, CreateSetupAddressChoices());
         _setupForm.Show();
         _setupForm.Activate();
     }

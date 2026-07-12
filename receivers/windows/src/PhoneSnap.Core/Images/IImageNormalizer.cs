@@ -2,5 +2,7 @@ namespace PhoneSnap.Core.Images;
 
 public interface IImageNormalizer
 {
-    byte[] NormalizePng(ReadOnlyMemory<byte> encodedImage);
+    Task<byte[]> NormalizePngAsync(
+        ReadOnlyMemory<byte> encodedImage,
+        CancellationToken cancellationToken);
 }

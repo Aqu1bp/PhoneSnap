@@ -4,6 +4,27 @@ namespace PhoneSnap.Windows.Platform;
 
 internal static class ClipboardWriter
 {
+    private const int RetryTimes = 5;
+    private const int RetryDelayMilliseconds = 100;
+
+    public static bool WriteText(string text)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(text);
+        try
+        {
+            Clipboard.SetDataObject(
+                text,
+                copy: true,
+                retryTimes: RetryTimes,
+                retryDelay: RetryDelayMilliseconds);
+            return true;
+        }
+        catch (ExternalException)
+        {
+            return false;
+        }
+    }
+
     public static bool WriteImageAndFile(string filePath)
     {
         var pngBytes = File.ReadAllBytes(filePath);
@@ -19,7 +40,11 @@ internal static class ClipboardWriter
 
         try
         {
-            Clipboard.SetDataObject(data, copy: true, retryTimes: 5, retryDelay: 100);
+            Clipboard.SetDataObject(
+                data,
+                copy: true,
+                retryTimes: RetryTimes,
+                retryDelay: RetryDelayMilliseconds);
             return true;
         }
         catch (ExternalException)

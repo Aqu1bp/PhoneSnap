@@ -77,44 +77,47 @@ internal static class SetupPage
                     if (file.size === 0) {
                       throw new Error(`${file.name} is empty.`);
                     }
-                    if (file.size > maximumUploadBytes) {
-                      throw new Error(`${file.name} exceeds PhoneSnap's 32 MiB upload limit.`);
-                    }
 
+                    let png;
                     if (file.type.toLowerCase() === 'image/png') {
-                      return new File([file], pngName(file.name), { type: 'image/png' });
+                      png = new File([file], pngName(file.name), { type: 'image/png' });
+                    } else {
+                      const objectUrl = URL.createObjectURL(file);
+                      try {
+                        const image = new Image();
+                        image.decoding = 'async';
+                        const loaded = new Promise((resolve, reject) => {
+                          image.onload = resolve;
+                          image.onerror = () => reject(new Error(`Could not decode ${file.name}.`));
+                        });
+                        image.src = objectUrl;
+                        await loaded;
+
+                        if (image.naturalWidth * image.naturalHeight > 50000000) {
+                          throw new Error(`${file.name} exceeds PhoneSnap's 50 megapixel safety limit.`);
+                        }
+
+                        const canvas = document.createElement('canvas');
+                        canvas.width = image.naturalWidth;
+                        canvas.height = image.naturalHeight;
+                        const context = canvas.getContext('2d');
+                        if (!context || canvas.width === 0 || canvas.height === 0) {
+                          throw new Error(`Could not convert ${file.name}.`);
+                        }
+                        context.drawImage(image, 0, 0);
+                        const blob = await new Promise((resolve, reject) => {
+                          canvas.toBlob(value => value ? resolve(value) : reject(new Error(`Could not convert ${file.name}.`)), 'image/png');
+                        });
+                        png = new File([blob], pngName(file.name), { type: 'image/png' });
+                      } finally {
+                        URL.revokeObjectURL(objectUrl);
+                      }
                     }
 
-                    const objectUrl = URL.createObjectURL(file);
-                    try {
-                      const image = new Image();
-                      image.decoding = 'async';
-                      const loaded = new Promise((resolve, reject) => {
-                        image.onload = resolve;
-                        image.onerror = () => reject(new Error(`Could not decode ${file.name}.`));
-                      });
-                      image.src = objectUrl;
-                      await loaded;
-
-                      if (image.naturalWidth * image.naturalHeight > 50000000) {
-                        throw new Error(`${file.name} exceeds PhoneSnap's 50 megapixel safety limit.`);
-                      }
-
-                      const canvas = document.createElement('canvas');
-                      canvas.width = image.naturalWidth;
-                      canvas.height = image.naturalHeight;
-                      const context = canvas.getContext('2d');
-                      if (!context || canvas.width === 0 || canvas.height === 0) {
-                        throw new Error(`Could not convert ${file.name}.`);
-                      }
-                      context.drawImage(image, 0, 0);
-                      const blob = await new Promise((resolve, reject) => {
-                        canvas.toBlob(value => value ? resolve(value) : reject(new Error(`Could not convert ${file.name}.`)), 'image/png');
-                      });
-                      return new File([blob], pngName(file.name), { type: 'image/png' });
-                    } finally {
-                      URL.revokeObjectURL(objectUrl);
+                    if (png.size > maximumUploadBytes) {
+                      throw new Error(`${file.name} becomes a PNG larger than PhoneSnap's 32 MiB upload limit.`);
                     }
+                    return png;
                   }
 
                   upload.addEventListener('click', async () => {
@@ -135,12 +138,13 @@ internal static class SetupPage
                         try {
                           status.textContent = `Preparing ${index + 1} of ${selected.length}: ${source.name}`;
                           const png = await asPng(source);
-                          const body = new FormData();
-                          body.append('file', png, png.name);
                           const response = await fetch(endpoint, {
                             method: 'POST',
-                            headers: { Authorization: `Bearer ${token}` },
-                            body,
+                            headers: {
+                              Authorization: `Bearer ${token}`,
+                              'Content-Type': 'image/png'
+                            },
+                            body: png,
                             cache: 'no-store',
                             credentials: 'omit',
                             redirect: 'error'

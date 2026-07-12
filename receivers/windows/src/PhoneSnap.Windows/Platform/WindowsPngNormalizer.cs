@@ -5,7 +5,7 @@ using PhoneSnap.Core.Images;
 
 namespace PhoneSnap.Windows.Platform;
 
-internal sealed class WindowsPngNormalizer : IImageNormalizer
+internal sealed class WindowsPngNormalizer
 {
     private readonly long _maximumPixelCount;
 

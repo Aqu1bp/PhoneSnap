@@ -3,8 +3,18 @@ namespace PhoneSnap.Windows;
 internal static class Program
 {
     [STAThread]
-    private static void Main()
+    private static int Main(string[] args)
     {
+        if (args.Length == 1 &&
+            args[0].Equals(
+                PhoneSnap.Core.Images.PngNormalizationWorkerProtocol.WorkerArgument,
+                StringComparison.Ordinal))
+        {
+            return PhoneSnap.Windows.Platform.WindowsPngWorker.Run(
+                Console.OpenStandardInput(),
+                Console.OpenStandardOutput());
+        }
+
         ApplicationConfiguration.Initialize();
         FileStream instanceLock;
         try
@@ -25,12 +35,12 @@ internal static class Program
                 "PhoneSnap",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Information);
-            return;
+            return 0;
         }
         catch (Exception exception) when (exception is UnauthorizedAccessException or NotSupportedException)
         {
             ShowStartupFailure(exception);
-            return;
+            return 1;
         }
 
         using (instanceLock)
@@ -44,6 +54,8 @@ internal static class Program
                 ShowStartupFailure(exception);
             }
         }
+
+        return 0;
     }
 
     private static void ShowStartupFailure(Exception exception)
