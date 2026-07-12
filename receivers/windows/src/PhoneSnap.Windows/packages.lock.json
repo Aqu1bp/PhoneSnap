@@ -1,0 +1,18 @@
+{
+  "version": 2,
+  "dependencies": {
+    "net10.0-windows7.0": {
+      "QRCoder": {
+        "type": "Direct",
+        "requested": "[1.8.0, )",
+        "resolved": "1.8.0",
+        "contentHash": "RuvX3PEXU6pbY/I5ItAk800jm62r+YnoPLgyS2WTgwxkOnGkOfU9ORiipHUF0LkLyqM8rlroUCA319JjRYfRFQ=="
+      },
+      "phonesnap.core": {
+        "type": "Project"
+      }
+    },
+    "net10.0-windows7.0/win-arm64": {},
+    "net10.0-windows7.0/win-x64": {}
+  }
+}

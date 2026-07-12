@@ -14,12 +14,18 @@ swift run PhoneSnap    # run from source with logs on stderr
 
 Requires macOS 13+ and Xcode 15+ / Swift 5.9+.
 
+The Windows receiver uses .NET 10. From `receivers/windows`, restore the locked
+packages, run `dotnet test`, then build the WinForms host for `win-x64` or
+`win-arm64`. See [the Windows receiver guide](receivers/windows/README.md) for
+the exact commands.
+
 ## Testing
 
 There is no automated hardware end-to-end test — the wired paths require a
-real trusted iPhone or an authorized Android device. Before opening a PR that
-touches the capture or wireless pipeline, run `swift test`, then walk through
-the relevant sections of
+real trusted iPhone or an authorized Android device, and the Windows Safari
+path requires a real Windows desktop, iPhone, firewall, and LAN. Before opening
+a PR that touches the capture or wireless pipeline, run the relevant Swift or
+.NET suite, then walk through the applicable sections of
 [docs/TEST_PLAN.md](docs/TEST_PLAN.md) and note in the PR what you verified
 on hardware.
 
@@ -37,12 +43,17 @@ are good places to start.
 
 ## Guidelines
 
-- Keep the app dependency-free (AppKit + system frameworks only).
+- Keep the macOS app dependency-free (AppKit + system frameworks only), and
+  keep Windows dependencies minimal, pinned, and locked.
 - iPhone USB is the primary automatic path, Android ADB is an explicit capture
   path, and wireless is a fallback. Don't regress an existing capture path to
   improve another.
 - Read [SECURITY.md](SECURITY.md) before changing the wireless receiver —
   in particular, nothing may broadcast or serve the pair ID or token beyond
   the existing QR/setup-URL flow.
+- Manual Safari upload is the implemented Windows+iPhone beta. Keep it marked
+  hardware-unverified until its physical test plan passes, and keep WPD
+  labelled experimental until the separate hardware gate in
+  [docs/WINDOWS_RESEARCH.md](docs/WINDOWS_RESEARCH.md) passes.
 - The `senders/` packages are deprecated experimental references; changes
   there are low priority.

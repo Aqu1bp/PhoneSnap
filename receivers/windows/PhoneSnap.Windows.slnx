@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/PhoneSnap.Core/PhoneSnap.Core.csproj" />
+    <Project Path="src/PhoneSnap.Windows/PhoneSnap.Windows.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/PhoneSnap.Core.Tests/PhoneSnap.Core.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -33,3 +33,33 @@ jobs:
         run: ./scripts/build-app.sh
       - name: Wireless receiver smoke test
         run: ./scripts/smoke-test.sh
+
+  windows:
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - name: Install .NET 10
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: receivers/windows/**/packages.lock.json
+      - name: Restore locked Windows dependencies
+        working-directory: receivers/windows
+        run: dotnet restore PhoneSnap.Windows.slnx --locked-mode
+      - name: Run Windows receiver tests
+        working-directory: receivers/windows
+        run: >-
+          dotnet test tests/PhoneSnap.Core.Tests/PhoneSnap.Core.Tests.csproj
+          --configuration Release --no-restore
+      - name: Publish Windows receiver (x64 and Arm64)
+        working-directory: receivers/windows
+        run: ./scripts/publish.ps1 -SkipRestore -SkipTests
+      - name: Configure the experimental WPD probe
+        run: cmake -S tools/windows/WpdProbe -B artifacts/WpdProbe -A x64
+      - name: Build the experimental WPD probe
+        run: cmake --build artifacts/WpdProbe --config Release

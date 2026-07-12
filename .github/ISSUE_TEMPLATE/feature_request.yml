@@ -25,6 +25,8 @@ body:
         - iPhone USB capture
         - Android ADB capture
         - Wireless Shortcut
+        - Windows Safari batch (beta)
+        - Windows USB research
         - Thumbnail UI
         - Packaging/install
         - Documentation

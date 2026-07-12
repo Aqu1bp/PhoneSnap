@@ -2,7 +2,12 @@
 
 Drag real phone screenshots into your coding agent.
 
-PhoneSnap is a small macOS menu bar app for AI-assisted mobile work. It receives new screenshots automatically from a trusted USB iPhone, captures an Android display through ADB on demand, or accepts an iOS Shortcut batch over Wi-Fi, then turns the images into draggable Mac thumbnails.
+PhoneSnap is a local-first desktop companion for AI-assisted mobile work. The
+macOS menu bar app receives screenshots automatically from a trusted USB
+iPhone, captures Android through ADB on demand, or accepts an iOS Shortcut
+batch. A hardware-unverified Windows 11 beta accepts an explicit Safari
+screenshot batch from an iPhone on the same LAN. Both receivers save PNGs,
+update the clipboard, and surface draggable images.
 
 The goal is simple: when your agent needs to understand a broken layout, a weird state, or a real-device visual bug, you should be able to take a screenshot and drop it straight into Codex, Cursor, Claude, ChatGPT, Slack, or an issue.
 
@@ -31,6 +36,10 @@ USB iPhone is the primary automatic path because macOS exposes a trusted plugged
 For Android, put the desired UI on screen and choose **Capture Android Screen**
 from the Mac menu instead of step 2.
 
+On Windows, open **Open iPhone Upload Page...** from the tray icon, scan its QR
+code, then select the screenshots in Safari. This path is manual; pressing the
+iPhone screenshot buttons does not automatically notify Windows.
+
 ## Requirements
 
 - macOS 13+
@@ -38,7 +47,11 @@ from the Mac menu instead of step 2.
 - iPhone or iPad that appears to macOS through ImageCaptureCore
 - Optional Android device with USB debugging and Android SDK Platform Tools (`adb`)
 - USB or USB-C cable for wired mode
-- Same Wi-Fi/LAN for wireless Shortcut mode
+- Same Wi-Fi/LAN for macOS Shortcut or Windows Safari mode
+- Windows 11 x64 or Arm64 for the beta Safari batch receiver (both are
+  cross-build targets pending physical validation)
+- .NET 10 SDK to build the Windows receiver from source (published builds are
+  self-contained)
 
 ## Quick Start
 
@@ -56,6 +69,10 @@ open ./PhoneSnap.app
 ```
 
 A small iPhone icon appears in the menu bar. The app is running.
+
+For Windows source builds and usage, see [PhoneSnap for
+Windows](receivers/windows/README.md). Its beta iPhone path uses a local
+Safari upload page and does not require an iOS Shortcut.
 
 ## Capture Modes
 
@@ -97,11 +114,36 @@ The Shortcut is generated locally by the Mac app. It asks Photos for the latest 
 
 Existing installed PhoneSnap Shortcuts should be removed and reinstalled from the setup page to get batch behavior.
 
+### Windows + iPhone Safari Batch (Beta)
+
+1. Start `PhoneSnap.Windows.exe` on Windows 11.
+2. If Windows Firewall asks, allow PhoneSnap on **Private networks only**.
+3. Open the PhoneSnap tray icon and choose **Open iPhone Upload Page...**.
+4. If several network addresses are listed, choose the Wi-Fi or Ethernet
+   network shared with the iPhone.
+5. Scan the QR code with the iPhone Camera.
+6. In Safari, choose one or more screenshots from Photos or Files and upload
+   them.
+
+The page uploads one image per authenticated protocol-v1 request. It converts
+browser-decodable non-PNG selections to PNG, checks the converted size, and
+sends the PNG as a raw `image/png` body. The receiver decodes and normalizes
+each accepted image in a killable worker process, saves it under
+`Pictures\PhoneSnap`, copies it to the Windows clipboard, and adds it to a
+topmost draggable recent-images panel. See [Windows + iPhone research](docs/WINDOWS_RESEARCH.md)
+for the boundary between this implemented beta and USB research.
+
 ## What Is Supported
 
 - Primary path: a trusted iPhone connected to the Mac over USB.
 - Supported Android path: user-triggered capture through an authorized USB or wireless ADB connection.
 - Fallback path: a locally generated, signed iOS Shortcut that sends a screenshot batch over the LAN.
+- Hardware-unverified Windows beta: an explicit iPhone Safari batch uploaded
+  to the Windows 11 tray receiver over a trusted LAN. Do not treat it as a
+  supported release until the physical checklist in
+  [the test plan](docs/TEST_PLAN.md) passes.
+- Experimental only: Windows Portable Devices (WPD) USB probing. Automatic
+  Windows+iPhone USB capture is not a supported product path yet.
 - Deprecated/experimental: automatic wireless senders embedded in the foreground app being built.
 - Deliberately not used: GitHub Gist rendezvous, third-party services, iCloud, or manual Shortcut URL/header/body entry.
 
@@ -126,6 +168,9 @@ USB iPhone arrivals and Android ADB captures share this behavior:
 - Click a panel thumbnail to copy it to the clipboard.
 - Double-click a panel thumbnail to open it in Preview.
 - The latest wireless upload is also written to the pasteboard for paste workflows.
+- On Windows, Safari uploads appear in a topmost **Recent PhoneSnap
+  Screenshots** panel; each item supports standard file drag-out and the latest
+  image/file is placed on the Windows clipboard.
 
 ## Where Screenshots Are Saved
 
@@ -133,6 +178,12 @@ By default:
 
 ```text
 ~/Pictures/PhoneSnap/Screenshot YYYY-MM-DD at HH.MM.SS.SSS.png
+```
+
+On Windows the default is:
+
+```text
+%USERPROFILE%\Pictures\PhoneSnap\Screenshot YYYY-MM-DD at HH.MM.SS.SSS.png
 ```
 
 Override the folder when launching:
@@ -153,6 +204,9 @@ PHONESNAP_DIR=~/Desktop/screenshots open ./PhoneSnap.app
 | Change wireless port | `PHONESNAP_WIRELESS_PORT=18472 open ./PhoneSnap.app` |
 | Change Shortcut batch size (1-50, default 10) | `PHONESNAP_BATCH_COUNT=20 open ./PhoneSnap.app`, then re-download and re-add the Shortcut |
 | Use ADB from a custom location | `PHONESNAP_ADB_PATH=/path/to/adb open ./PhoneSnap.app` |
+
+Windows build, test, publish, and configuration commands are documented in
+[`receivers/windows/README.md`](receivers/windows/README.md).
 
 ## How It Works
 
@@ -184,6 +238,15 @@ iPhone over Wi-Fi experimental
   foreground app includes deprecated debug PhoneSnap sender
     -> sender snapshots its active app UI
     -> POSTs raw PNG to the Mac receiver with Authorization: Bearer <token>
+
+iPhone Safari on Windows
+  user scans the Windows tray app's local setup QR
+    -> Safari explicitly selects screenshots from Photos or Files
+    -> setup page converts browser-decodable input to PNG when necessary
+    -> rejects converted PNGs over 32 MiB and POSTs raw image/png
+    -> a bounded child process normalizes each PNG
+    -> Windows saves PNGs and updates the clipboard
+    -> Windows shows the draggable recent-images panel
 ```
 
 ## Troubleshooting
@@ -204,6 +267,8 @@ iPhone over Wi-Fi experimental
 | Shortcut used to work but now fails silently | If it was installed from the IP address URL, the Mac's IP likely changed. Rerun setup and re-add the Shortcut; prefer the `.local` hostname URL when it loads. |
 | Shortcut runs but nothing appears on the Mac | Confirm screenshots exist in Photos, both devices are on the same LAN, and Shortcuts has local-network permission (iPhone Settings → Privacy & Security → Local Network). |
 | Shortcut download fails | Run from terminal with `swift run PhoneSnap`; the setup route reports `/usr/bin/shortcuts sign` errors instead of crashing. If signing fails or times out on a fresh Mac, open the Shortcuts app once and retry. |
+| Windows setup page does not load on the iPhone | Keep the tray app running, use the same LAN, and allow PhoneSnap on Windows **Private networks**. Reopen the setup dialog and, when its network selector appears, choose the Wi-Fi or Ethernet address shared with the iPhone before scanning the refreshed QR. |
+| A selected iPhone image fails in Safari | Retry with an SDR screenshot. Current iPhones can store HDR screenshots as HEIC, and browser/Windows codec support varies. The remaining batch continues and shows a per-file result. |
 
 ## Known Limitations
 
@@ -213,12 +278,23 @@ iPhone over Wi-Fi experimental
 - Shortcut wireless is manual-triggered and remains a fallback.
 - Existing installed Shortcuts need reinstall to get the latest batch upload behavior.
 - Dev senders are deprecated/experimental and no longer exposed in the main menu.
-- Wireless requires the Mac app to be running and reachable from the iPhone on the local network.
+- The macOS Shortcut requires the Mac app to be running and reachable; the
+  Windows Safari page likewise requires the Windows tray app on the same LAN.
 - Shortcut signing depends on `/usr/bin/shortcuts sign --mode anyone`.
 - Single-capture mode shows one thumbnail at a time. A new iPhone USB or Android ADB image dismisses the old thumbnail.
 - Screenshot detection uses dimensions/aspect-ratio heuristics to avoid importing normal camera photos.
 - No app sandbox and no notarization. First launch may require right-click -> Open or removing quarantine metadata.
-- No automated phone end-to-end test; full verification requires a real trusted iPhone or authorized Android device.
+- No automated phone end-to-end test; full verification requires the relevant
+  Mac or Windows desktop and a real trusted iPhone or authorized Android
+  device.
+- Windows Safari upload is explicit and manual; it does not watch the iPhone
+  camera roll or react to hardware screenshot buttons.
+- Automatic Windows+iPhone USB capture is not supported. The public WPD probe
+  remains experimental until it passes the real-device matrix in
+  [Windows research](docs/WINDOWS_RESEARCH.md).
+- Windows firewall prompts, Safari's photo picker, LAN reachability, clipboard
+  interoperability, and drag targets require a physical Windows+iPhone test;
+  portable CI cannot validate them.
 
 ## Project Layout
 
@@ -233,6 +309,9 @@ PhoneSnap/
 │   ├── expo                       Expo prototype
 │   ├── react-native               intended API stub
 │   └── flutter                    intended API stub
+├── receivers/windows/             Windows 11 tray receiver and portable .NET core
+│   └── README.md                  Windows build, setup, and limitations
+├── tools/windows/WpdProbe/         experimental public-API USB capability probe
 ├── Sources/PhoneSnap/             macOS menu bar app
 │   ├── AppDelegate.swift          app lifecycle and delivery pipeline
 │   ├── ADBDevice.swift            Android device parsing and adb discovery
@@ -262,7 +341,11 @@ PhoneSnap/
 
 ## Security
 
-Wireless mode runs a plain-HTTP receiver on your LAN, protected by a random pair ID and bearer token. Read [SECURITY.md](SECURITY.md) for the threat model before using it on shared networks. Wired mode opens no network listeners.
+Wireless mode on macOS and Windows runs a plain-HTTP receiver on your LAN,
+protected by a random pair ID and bearer token. Read
+[SECURITY.md](SECURITY.md) before using it on a shared network. Supported wired
+Mac capture opens no PhoneSnap network listener; Windows WPD remains a separate
+experiment.
 
 ## Contributing
 

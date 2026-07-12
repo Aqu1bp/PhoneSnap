@@ -6,3 +6,9 @@ updates:
       interval: "weekly"
     cooldown:
       default-days: 7
+  - package-ecosystem: "nuget"
+    directory: "/receivers/windows"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7

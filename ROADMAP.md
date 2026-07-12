@@ -6,6 +6,8 @@ PhoneSnap's north star is simple: make real phone screenshots easy to hand to co
 
 - Keep wired USB capture reliable across macOS and iOS versions.
 - Keep user-triggered Android ADB capture reliable across devices and SDK releases.
+- Complete the physical Windows+iPhone Safari checklist, then promote the beta
+  receiver only for the architectures and devices actually verified.
 - Make the wireless Shortcut fallback easier to install and debug.
 - Improve first-run and troubleshooting docs for non-Swift users.
 - Package GitHub Releases so people can try PhoneSnap without building it.
@@ -23,12 +25,16 @@ PhoneSnap's north star is simple: make real phone screenshots easy to hand to co
 - Explore a signed helper or hardened runtime setup if sandboxing becomes practical.
 - Add a lightweight in-app preferences window for save location, wireless port, and batch size.
 - Revisit direct app-embedded senders if foreground-app workflows prove useful again.
-- Prototype Windows Portable Devices event delivery before committing to a Windows+iPhone wired adapter.
+- Continue the public-API Windows Portable Devices probe, but promote a
+  Windows+iPhone wired adapter only after it passes the complete hardware gate
+  in [Windows research](docs/WINDOWS_RESEARCH.md).
 
 ## Good First Issues
 
 - Improve a troubleshooting entry after reproducing it on real hardware.
 - Add a focused smoke-test assertion for an existing wireless error case.
+- Improve a Windows Safari uploader or protocol-conformance test without
+  changing the stable protocol.
 - Tighten README wording where a new user has to reread a step.
 - Improve accessibility labels in AppKit views.
 - Add a small diagnostic log message that would have helped debug a real failure.
