@@ -9,7 +9,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var wirelessReceiver: WirelessReceiver!
     private var wirelessSetupWindow: WirelessSetupWindowController!
     private let store = ImageStore()
-    private let wirelessPairing = WirelessPairing.load()
+    /// Assigned in `applicationDidFinishLaunching`, after the enablement
+    /// migration has had a chance to observe whether a pairing already
+    /// existed — `WirelessPairing.load()` provisions one as a side effect.
+    private var wirelessPairing: WirelessPairing!
+    private var wirelessEnabled = false
     private let wirelessPort: UInt16 = {
         ProcessInfo.processInfo.environment["PHONESNAP_WIRELESS_PORT"].flatMap(UInt16.init) ?? 8472
     }()
@@ -23,6 +27,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var wirelessState: WirelessReceiver.State = .stopped
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Order matters: the migration inspects the stored pairing, which
+        // loading one would create.
+        wirelessEnabled = WirelessSettings.resolveEnabled()
+        wirelessPairing = WirelessPairing.load()
+
         presenter = ThumbnailPresenter()
         wirelessBatchPresenter = WirelessBatchPresenter()
         wirelessSetupWindow = WirelessSetupWindowController(infoProvider: { [weak self] in
@@ -43,14 +52,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return "Wired: connected to \(names.joined(separator: ", "))"
             },
             wirelessStatus: { [weak self] in
-                self?.wirelessState.menuTitle ?? WirelessReceiver.State.stopped.menuTitle
+                guard let self else { return WirelessReceiver.State.stopped.menuTitle }
+                guard self.wirelessEnabled else {
+                    return "Wireless Shortcut batch receiver: off"
+                }
+                return self.wirelessState.menuTitle
             },
+            wirelessEnabled: { [weak self] in self?.wirelessEnabled ?? false },
+            onToggleWireless: { [weak self] enabled in
+                self?.setWirelessEnabled(enabled)
+            },
+            onRotatePairing: { [weak self] in self?.confirmRotatePairing() },
             onShowLast: { [weak self] in self?.showLastScreenshot() },
             onRevealFolder: { [weak self] in self?.store.revealInFinder() },
-            onSetupWireless: { [weak self] in self?.wirelessSetupWindow.show() }
+            onSetupWireless: { [weak self] in
+                // Setting wireless up implies wanting it to run.
+                self?.setWirelessEnabled(true)
+                self?.wirelessSetupWindow.show()
+            }
         )
 
-        wirelessReceiver = WirelessReceiver(
+        wirelessReceiver = makeWirelessReceiver()
+
+        // ImageCaptureCore watches trusted USB-connected iPhones and emits
+        // new camera-roll items created after app startup.
+        cameraBridge = CameraBridge { [weak self] data, name in
+            guard let self else { return }
+            _ = self.deliver(data: data, source: "Cable(\(name))")
+        }
+        cameraBridge.onDevicesChanged = { [weak self] names in
+            self?.statusItemController.setConnected(!names.isEmpty)
+            self?.statusItemController.refresh()
+        }
+
+        if wirelessEnabled {
+            startWirelessReceiver()
+        } else {
+            Log.info("Wireless receiver is off; no network listener started")
+        }
+
+        Log.info("Starting wired iPhone screenshot watcher")
+        cameraBridge.start()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        wirelessReceiver?.stop()
+        cameraBridge?.stop()
+    }
+
+    // MARK: wireless lifecycle
+
+    private func makeWirelessReceiver() -> WirelessReceiver {
+        WirelessReceiver(
             port: wirelessPort,
             pairing: wirelessPairing,
             batchCount: wirelessBatchCount,
@@ -66,18 +119,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         )
+    }
 
-        // ImageCaptureCore watches trusted USB-connected iPhones and emits
-        // new camera-roll items created after app startup.
-        cameraBridge = CameraBridge { [weak self] data, name in
-            guard let self else { return }
-            _ = self.deliver(data: data, source: "Cable(\(name))")
-        }
-        cameraBridge.onDevicesChanged = { [weak self] names in
-            self?.statusItemController.setConnected(!names.isEmpty)
-            self?.statusItemController.refresh()
-        }
-
+    private func startWirelessReceiver() {
         do {
             try wirelessReceiver.start()
         } catch {
@@ -85,14 +129,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Log.error("Wireless receiver could not start on port \(wirelessPort): \(error)")
             statusItemController.refresh()
         }
-
-        Log.info("Starting wired iPhone screenshot watcher")
-        cameraBridge.start()
     }
 
-    func applicationWillTerminate(_ notification: Notification) {
-        wirelessReceiver?.stop()
-        cameraBridge?.stop()
+    @MainActor
+    private func setWirelessEnabled(_ enabled: Bool) {
+        guard enabled != wirelessEnabled else { return }
+        wirelessEnabled = enabled
+        WirelessSettings.setEnabled(enabled)
+        if enabled {
+            Log.info("Wireless receiver turned on")
+            startWirelessReceiver()
+        } else {
+            Log.info("Wireless receiver turned off")
+            wirelessReceiver.stop()
+            wirelessState = .stopped
+        }
+        statusItemController.refresh()
+        wirelessSetupWindow.refreshIfVisible()
+    }
+
+    /// Rotating invalidates every Shortcut already installed on a phone, so
+    /// confirm before doing it.
+    @MainActor
+    private func confirmRotatePairing() {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Rotate the PhoneSnap pairing?"
+        alert.informativeText = """
+        A new pair ID and upload token are generated. Every PhoneSnap Shortcut \
+        already added to an iPhone stops working and must be set up again from \
+        the new QR code.
+
+        Do this if you think the current setup link or token has been seen by \
+        someone else.
+        """
+        alert.addButton(withTitle: "Rotate")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        rotatePairing()
+    }
+
+    @MainActor
+    private func rotatePairing() {
+        wirelessReceiver.stop()
+        wirelessPairing = WirelessPairing.rotate()
+        wirelessReceiver = makeWirelessReceiver()
+        wirelessState = .stopped
+        Log.info("Rotated the wireless pairing; previously installed Shortcuts are now rejected")
+        if wirelessEnabled {
+            startWirelessReceiver()
+        }
+        statusItemController.refresh()
+        wirelessSetupWindow.refreshIfVisible()
     }
 
     /// Prefer the last screenshot delivered this session (wired or wireless);

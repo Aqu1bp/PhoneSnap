@@ -8,8 +8,22 @@ struct WirelessPairing {
     private static let pairIDKey = "PhoneSnapWirelessPairID"
     private static let tokenKey = "PhoneSnapWirelessToken"
 
-    static func load() -> WirelessPairing {
-        let defaults = UserDefaults.standard
+    /// Whether a pairing has already been provisioned on this machine.
+    /// Read before `load()`, which creates one as a side effect.
+    static func exists(defaults: UserDefaults = AppDefaults.store) -> Bool {
+        defaults.string(forKey: pairIDKey).flatMap(nonEmpty) != nil &&
+            defaults.string(forKey: tokenKey).flatMap(nonEmpty) != nil
+    }
+
+    /// Discard the stored pairing and provision a fresh one. Every Shortcut
+    /// already installed on a phone stops working and must be re-added.
+    static func rotate(defaults: UserDefaults = AppDefaults.store) -> WirelessPairing {
+        defaults.removeObject(forKey: pairIDKey)
+        defaults.removeObject(forKey: tokenKey)
+        return load(defaults: defaults)
+    }
+
+    static func load(defaults: UserDefaults = AppDefaults.store) -> WirelessPairing {
         let pairID = defaults.string(forKey: pairIDKey).flatMap(nonEmpty)
             ?? randomBase64URL(byteCount: 9)
         let token = defaults.string(forKey: tokenKey).flatMap(nonEmpty)
