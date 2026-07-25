@@ -21,6 +21,11 @@ let package = Package(
         .executableTarget(
             name: "UsbmuxdProbe",
             path: "Sources/UsbmuxdProbe"
+        ),
+        .testTarget(
+            name: "PhoneSnapTests",
+            dependencies: ["PhoneSnap"],
+            path: "Tests/PhoneSnapTests"
         )
     ]
 )

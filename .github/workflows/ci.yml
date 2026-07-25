@@ -27,6 +27,8 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - name: Build all targets
         run: swift build
+      - name: Run unit tests
+        run: swift test
       - name: Build the app bundle (documented quick-start path)
         run: ./scripts/build-app.sh
       - name: Wireless receiver smoke test
