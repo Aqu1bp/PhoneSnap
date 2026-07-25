@@ -49,7 +49,7 @@ final class ThumbnailDragTests: XCTestCase {
             fileURL: try makeFileURL(),
             barHeight: 32
         )
-        let wireless = RecentFromIPhoneThumbnailView(
+        let wireless = RecentScreenshotThumbnailView(
             image: makeImage(),
             fileURL: try makeFileURL(),
             size: NSSize(width: 120, height: 120)
