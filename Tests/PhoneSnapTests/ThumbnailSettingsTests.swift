@@ -2,11 +2,11 @@ import XCTest
 @testable import PhoneSnap
 
 final class ThumbnailSettingsTests: XCTestCase {
-    private var defaults: UserDefaults!
+    private var defaults: InMemoryStore!
 
     override func setUp() {
         super.setUp()
-        defaults = IsolatedDefaults.make(for: self)
+        defaults = InMemoryStore()
     }
 
     func testDefaultsToTheRecentStripForEveryCaptureSource() {

@@ -14,7 +14,7 @@ enum WirelessSettings {
     ///
     /// Must be called *before* `WirelessPairing.load()`, which creates the
     /// pairing keys the migration reads to recognise an existing install.
-    static func resolveEnabled(defaults: UserDefaults = AppDefaults.store) -> Bool {
+    static func resolveEnabled(defaults: KeyValueStore = AppDefaults.store) -> Bool {
         if let override = environmentOverride() {
             Log.info("Wireless receiver \(override ? "enabled" : "disabled") by \(environmentKey)")
             return override
@@ -33,7 +33,7 @@ enum WirelessSettings {
         return inherited
     }
 
-    static func setEnabled(_ enabled: Bool, defaults: UserDefaults = AppDefaults.store) {
+    static func setEnabled(_ enabled: Bool, defaults: KeyValueStore = AppDefaults.store) {
         defaults.set(enabled, forKey: enabledKey)
     }
 

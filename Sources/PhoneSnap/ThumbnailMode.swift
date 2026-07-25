@@ -23,11 +23,11 @@ enum ThumbnailMode: String {
 enum ThumbnailSettings {
     private static let modeKey = "PhoneSnapThumbnailMode"
 
-    static func mode(defaults: UserDefaults = AppDefaults.store) -> ThumbnailMode {
+    static func mode(defaults: KeyValueStore = AppDefaults.store) -> ThumbnailMode {
         defaults.string(forKey: modeKey).flatMap(ThumbnailMode.init(rawValue:)) ?? .recentStrip
     }
 
-    static func setMode(_ mode: ThumbnailMode, defaults: UserDefaults = AppDefaults.store) {
+    static func setMode(_ mode: ThumbnailMode, defaults: KeyValueStore = AppDefaults.store) {
         defaults.set(mode.rawValue, forKey: modeKey)
     }
 }
