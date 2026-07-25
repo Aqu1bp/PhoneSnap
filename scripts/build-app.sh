@@ -21,7 +21,17 @@ cp "$BIN_SRC" "$APP/Contents/MacOS/PhoneSnap"
 chmod +x "$APP/Contents/MacOS/PhoneSnap"
 cp Resources/PhoneSnap.icns "$APP/Contents/Resources/PhoneSnap.icns"
 
-cat > "$APP/Contents/Info.plist" <<'PLIST'
+# Version reported in Finder and the About panel. Taken from the most recent
+# git tag so a release bundle cannot claim a version it is not, with an
+# override for building outside a tagged checkout.
+# `|| true` matters: CI checks out without tags, and under `set -e` a failing
+# git describe aborts the script before the fallback below can apply.
+VERSION="${PHONESNAP_VERSION:-$(git describe --tags --abbrev=0 2>/dev/null || true)}"
+VERSION="${VERSION#v}"
+VERSION="${VERSION:-0.0.0-dev}"
+echo "→ bundle version $VERSION"
+
+cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -35,7 +45,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleVersion</key>
   <string>1</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.1.0</string>
+  <string>$VERSION</string>
   <key>CFBundleIconFile</key>
   <string>PhoneSnap</string>
   <key>CFBundleExecutable</key>
