@@ -178,6 +178,7 @@ iPhone over Wi-Fi experimental
 - Existing installed Shortcuts need reinstall to get the latest batch upload behavior.
 - Dev senders are deprecated/experimental and no longer exposed in the main menu.
 - Wireless requires the Mac app to be running and reachable from the iPhone on the local network.
+- The wireless receiver starts with the app and cannot be turned off separately, even if you only capture over USB.
 - Shortcut signing depends on `/usr/bin/shortcuts sign --mode anyone`.
 - Wired mode shows one thumbnail at a time. A new wired screenshot dismisses the old wired thumbnail.
 - Screenshot detection uses dimensions/aspect-ratio heuristics to avoid importing normal camera photos.
@@ -220,7 +221,7 @@ PhoneSnap/
 
 ## Security
 
-Wireless mode runs a plain-HTTP receiver on your LAN, protected by a random pair ID and bearer token. Read [SECURITY.md](SECURITY.md) for the threat model before using it on shared networks. Wired mode opens no network listeners.
+PhoneSnap runs a plain-HTTP receiver on your LAN, protected by a random pair ID and bearer token. It starts with the app and stays up whichever capture mode you use, so the threat model applies to wired-only use too. Read [SECURITY.md](SECURITY.md) before running PhoneSnap on a shared network.
 
 ## Contributing
 
