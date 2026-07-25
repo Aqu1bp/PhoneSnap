@@ -3,25 +3,30 @@
 PhoneSnap is a local developer tool. This document describes its threat model
 so users can decide whether the wireless mode is appropriate for their network.
 
-## The listener is always on
+## When the listener runs
 
-PhoneSnap starts its wireless receiver when the app launches, regardless of
-which capture mode you use. Cable-only users are running it too.
+The wireless receiver is **off on a new install**. Nothing listens on the
+network until you turn it on, either by opening **Set Up Wireless Shortcut…**
+or with the **Enable Wireless Receiver** menu item. The choice persists across
+launches, and the same menu item turns it back off.
 
-It binds every interface on port `8472` (override with
+Installs that were already paired before this setting existed keep the
+receiver on, so a Shortcut already added to an iPhone continues to work.
+
+While it is on, it binds every interface on port `8472` (override with
 `PHONESNAP_WIRELESS_PORT`), so any device on the same LAN can reach it. A
 typical home router does not forward that port, so it is not reachable from
 the internet unless you have explicitly port-forwarded it.
 
-There is currently no setting to disable the listener. Quitting PhoneSnap
-stops it.
+`PHONESNAP_WIRELESS_ENABLED=0` or `=1` overrides the stored setting for a
+single run without changing it.
 
 ## Wired mode
 
 The wired USB path uses Apple's ImageCaptureCore framework. It does not open
-a network listener of its own and screenshots never leave the machine — but
-the wireless listener described above is still running, so the wireless
-threat model applies to you even if you only ever use the cable.
+a network listener and screenshots never leave the machine. If you have never
+turned the wireless receiver on, none of the wireless threat model below
+applies to you.
 
 ## Wireless mode threat model
 
@@ -101,8 +106,15 @@ Protections and their limits:
 
 ## Rotating credentials
 
-Delete the stored pairing values and relaunch to generate fresh ones
-(existing installed Shortcuts stop working and must be reinstalled):
+Choose **Rotate Pairing…** from the menu bar icon and confirm. A new pair ID
+and token are generated immediately, and the setup window shows the new QR
+code. Every Shortcut already added to an iPhone stops working and must be set
+up again from that code.
+
+Rotate if you think the setup link, QR code, or token has been seen by anyone
+else.
+
+The same thing can be done by hand — delete the stored values and relaunch:
 
 ```bash
 defaults delete dev.phonesnap.PhoneSnap PhoneSnapWirelessPairID 2>/dev/null
