@@ -40,7 +40,13 @@ USB is the primary path because macOS exposes a trusted plugged-in iPhone as a c
 
 Download the latest `PhoneSnap.zip` from [Releases](https://github.com/Aqu1bp/PhoneSnap/releases/latest), unzip it, then open `PhoneSnap.app`.
 
-PhoneSnap is not notarized yet, so macOS may block the first launch. If that happens, right-click `PhoneSnap.app`, choose **Open**, then confirm.
+PhoneSnap is ad-hoc signed but not notarized, so macOS blocks the first launch. Right-click `PhoneSnap.app`, choose **Open**, then confirm.
+
+If a build says **"PhoneSnap is damaged and can't be opened"**, that is not a corrupt download — releases up to and including v0.1.1 shipped a bundle whose signature did not seal `Info.plist` and `Resources`, and macOS reports an invalid signature that way. Use v0.1.2 or later, or clear the quarantine flag on the copy you already have:
+
+```bash
+xattr -dr com.apple.quarantine /path/to/PhoneSnap.app
+```
 
 To build from source instead:
 
@@ -182,7 +188,7 @@ iPhone over Wi-Fi experimental
 - Shortcut signing depends on `/usr/bin/shortcuts sign --mode anyone`.
 - Wired mode shows one thumbnail at a time. A new wired screenshot dismisses the old wired thumbnail.
 - Screenshot detection uses dimensions/aspect-ratio heuristics to avoid importing normal camera photos.
-- No app sandbox and no notarization. First launch may require right-click -> Open or removing quarantine metadata.
+- No app sandbox, and ad-hoc signing rather than Developer ID notarization. First launch requires right-click -> Open or removing quarantine metadata.
 - No automated iPhone end-to-end test; full wired/wireless verification requires a real trusted iPhone.
 
 ## Project Layout

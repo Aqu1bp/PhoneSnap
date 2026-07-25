@@ -62,8 +62,21 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
+# Sign the assembled bundle, not just the binary. `swift build` leaves a
+# linker-signed Mach-O, which does not seal Info.plist or Resources — so the
+# bundle's signature is invalid, and macOS reports a downloaded copy as
+# "damaged and can't be opened" rather than merely unidentified.
+#
+# Ad-hoc (`-`) is the best we can do without a Developer ID. It does not make
+# the app notarized: a download still needs right-click → Open once. It does
+# mean Gatekeeper reports that honestly instead of sending users to the Trash.
+echo "→ codesign (ad-hoc)"
+codesign --force --sign - --identifier dev.phonesnap.PhoneSnap "$APP"
+codesign --verify --deep --strict "$APP"
+
 echo "→ built $APP"
 echo "  binary: $(du -h "$APP/Contents/MacOS/PhoneSnap" | cut -f1)"
+echo "  signature: $(codesign -dv "$APP" 2>&1 | awk -F= '/^Signature/{print $2}')"
 echo
 echo "Run: open ./$APP"
 echo "Or move to /Applications: mv $APP /Applications/"
