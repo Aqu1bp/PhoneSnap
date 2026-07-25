@@ -15,11 +15,18 @@ DIR="$(mktemp -d)"
 BIN=".build/debug/PhoneSnap"
 [ -x "$BIN" ] || { echo "missing $BIN — run swift build first"; exit 1; }
 
+# Preferences are resolved by cfprefsd from the domain name, NOT from $HOME —
+# overriding HOME does not isolate them, so an earlier version of this script
+# read and overwrote the developer's real PhoneSnap pairing. Use a throwaway
+# defaults suite instead and remove it on the way out.
+SUITE="phonesnap.smoke.$$"
+
 cleanup() {
   if [ -n "${APP_PID:-}" ]; then
     kill "$APP_PID" 2>/dev/null || true
     wait "$APP_PID" 2>/dev/null || true
   fi
+  defaults delete "$SUITE" 2>/dev/null || true
   rm -rf "$DIR"
 }
 trap cleanup EXIT
@@ -27,7 +34,10 @@ trap cleanup EXIT
 export HOME="$DIR/home"
 mkdir -p "$HOME"
 
-PHONESNAP_WIRELESS_PORT="$PORT" PHONESNAP_DIR="$DIR/snaps" "$BIN" > "$DIR/app.log" 2>&1 &
+# The receiver is off by default on a fresh install, and the suite above is
+# always fresh, so ask for it explicitly rather than depending on the default.
+PHONESNAP_DEFAULTS_SUITE="$SUITE" PHONESNAP_WIRELESS_ENABLED=1 \
+  PHONESNAP_WIRELESS_PORT="$PORT" PHONESNAP_DIR="$DIR/snaps" "$BIN" > "$DIR/app.log" 2>&1 &
 APP_PID=$!
 
 # Wait for the receiver to come up and the pairing values to persist.
@@ -35,7 +45,7 @@ PAIR=""
 READY=0
 for _ in $(seq 1 30); do
   sleep 0.5
-  PAIR=$(HOME="$HOME" defaults read PhoneSnap PhoneSnapWirelessPairID 2>/dev/null || true)
+  PAIR=$(defaults read "$SUITE" PhoneSnapWirelessPairID 2>/dev/null || true)
   if [ -n "$PAIR" ] && curl -s -m 5 -o /dev/null "http://127.0.0.1:$PORT/pair/$PAIR"; then
     READY=1
     break
@@ -46,7 +56,7 @@ if [ "$READY" != "1" ]; then
   cat "$DIR/app.log"
   exit 1
 fi
-TOKEN=$(HOME="$HOME" defaults read PhoneSnap PhoneSnapWirelessToken)
+TOKEN=$(defaults read "$SUITE" PhoneSnapWirelessToken)
 BASE="http://127.0.0.1:$PORT"
 
 # 1x1 transparent PNG for upload checks.
