@@ -24,7 +24,10 @@ cp Resources/PhoneSnap.icns "$APP/Contents/Resources/PhoneSnap.icns"
 # Version reported in Finder and the About panel. Taken from the most recent
 # git tag so a release bundle cannot claim a version it is not, with an
 # override for building outside a tagged checkout.
-VERSION="${PHONESNAP_VERSION:-$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')}"
+# `|| true` matters: CI checks out without tags, and under `set -e` a failing
+# git describe aborts the script before the fallback below can apply.
+VERSION="${PHONESNAP_VERSION:-$(git describe --tags --abbrev=0 2>/dev/null || true)}"
+VERSION="${VERSION#v}"
 VERSION="${VERSION:-0.0.0-dev}"
 echo "→ bundle version $VERSION"
 
