@@ -2,20 +2,11 @@ import XCTest
 @testable import PhoneSnap
 
 final class WirelessSettingsTests: XCTestCase {
-    private var suiteName: String!
     private var defaults: UserDefaults!
 
     override func setUp() {
         super.setUp()
-        suiteName = "phonesnap.tests.\(UUID().uuidString)"
-        defaults = UserDefaults(suiteName: suiteName)
-    }
-
-    override func tearDown() {
-        defaults.removePersistentDomain(forName: suiteName)
-        defaults = nil
-        suiteName = nil
-        super.tearDown()
+        defaults = IsolatedDefaults.make(for: self)
     }
 
     func testFreshInstallStartsDisabled() {
