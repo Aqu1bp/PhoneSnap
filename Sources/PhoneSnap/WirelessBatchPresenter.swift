@@ -270,6 +270,12 @@ final class RecentFromIPhoneThumbnailView: NSView, NSDraggingSource {
     /// a thumbnail must start an image drag instead of moving the window.
     override var mouseDownCanMoveWindow: Bool { false }
 
+    /// PhoneSnap is a menu bar app, so this panel is usually in an inactive
+    /// application. Without this, macOS spends the first click activating the
+    /// window instead of delivering it, so `mouseDown` never records a start
+    /// point and the first drag attempt silently does nothing.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
     override func layout() {
         super.layout()
         imageLayer.frame = imageRect()
