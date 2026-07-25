@@ -1,0 +1,28 @@
+import XCTest
+@testable import PhoneSnap
+
+final class ThumbnailSettingsTests: XCTestCase {
+    private var defaults: UserDefaults!
+
+    override func setUp() {
+        super.setUp()
+        defaults = IsolatedDefaults.make(for: self)
+    }
+
+    func testDefaultsToTheRecentStripForEveryCaptureSource() {
+        XCTAssertEqual(ThumbnailSettings.mode(defaults: defaults), .recentStrip)
+    }
+
+    func testModeRoundTrips() {
+        ThumbnailSettings.setMode(.latestOnly, defaults: defaults)
+        XCTAssertEqual(ThumbnailSettings.mode(defaults: defaults), .latestOnly)
+
+        ThumbnailSettings.setMode(.recentStrip, defaults: defaults)
+        XCTAssertEqual(ThumbnailSettings.mode(defaults: defaults), .recentStrip)
+    }
+
+    func testUnrecognisedStoredValueFallsBackInsteadOfCrashing() {
+        defaults.set("something-else", forKey: "PhoneSnapThumbnailMode")
+        XCTAssertEqual(ThumbnailSettings.mode(defaults: defaults), .recentStrip)
+    }
+}

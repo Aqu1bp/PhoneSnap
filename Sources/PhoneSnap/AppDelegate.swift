@@ -4,10 +4,11 @@ import CryptoKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItemController: StatusItemController!
     private var presenter: ThumbnailPresenter!
-    private var wirelessBatchPresenter: WirelessBatchPresenter!
+    private var recentPresenter: RecentScreenshotsPresenter!
     private var cameraBridge: CameraBridge!
     private var wirelessReceiver: WirelessReceiver!
     private var wirelessSetupWindow: WirelessSetupWindowController!
+    private var settingsWindow: SettingsWindowController!
     private let store = ImageStore()
     /// Assigned in `applicationDidFinishLaunching`, after the enablement
     /// migration has had a chance to observe whether a pairing already
@@ -33,7 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         wirelessPairing = WirelessPairing.load()
 
         presenter = ThumbnailPresenter()
-        wirelessBatchPresenter = WirelessBatchPresenter()
+        recentPresenter = RecentScreenshotsPresenter()
         wirelessSetupWindow = WirelessSetupWindowController(infoProvider: { [weak self] in
             self?.wirelessSetupInfo() ?? WirelessSetupInfo(
                 pairID: "unavailable",
@@ -43,6 +44,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 lanIP: nil
             )
         })
+        settingsWindow = SettingsWindowController(
+            wirelessEnabled: { [weak self] in self?.wirelessEnabled ?? false },
+            onToggleWireless: { [weak self] enabled in self?.setWirelessEnabled(enabled) },
+            onModeChanged: { [weak self] mode in
+                Log.info("Thumbnail display set to \(mode.rawValue)")
+                self?.statusItemController.refresh()
+            }
+        )
         statusItemController = StatusItemController(
             wiredStatus: { [weak self] in
                 let names = self?.cameraBridge?.connectedDeviceNames ?? []
@@ -62,6 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onToggleWireless: { [weak self] enabled in
                 self?.setWirelessEnabled(enabled)
             },
+            onOpenSettings: { [weak self] in self?.settingsWindow.show() },
             onRotatePairing: { [weak self] in self?.confirmRotatePairing() },
             onShowLast: { [weak self] in self?.showLastScreenshot() },
             onRevealFolder: { [weak self] in self?.store.revealInFinder() },
@@ -209,13 +219,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
+    /// Single surfacing path for every capture source. Which presenter is used
+    /// is the user's preference, not a property of how the screenshot arrived.
+    @MainActor
+    private func surface(fileURL: URL) {
+        let mode = ThumbnailSettings.mode()
+        Log.info("Surfacing \(fileURL.lastPathComponent) as \(mode.rawValue)")
+        switch mode {
+        case .latestOnly:
+            presenter.present(fileURL: fileURL)
+        case .recentStrip:
+            recentPresenter.enqueue(fileURL: fileURL)
+        }
+    }
+
     @discardableResult
     private func deliver(data: Data, source: String) -> Bool {
         do {
             let url = try store.save(data: data)
             Log.info("Delivered via \(source): \(url.lastPathComponent)")
             DispatchQueue.main.async { [weak self] in
-                self?.presenter.present(fileURL: url)
+                self?.surface(fileURL: url)
                 Pasteboard.write(fileURL: url)
             }
             return true
@@ -241,7 +265,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let existing {
             Log.info("Wireless upload already received this session: re-showing \(existing.lastPathComponent)")
             DispatchQueue.main.async { [weak self] in
-                self?.wirelessBatchPresenter.enqueue(fileURL: existing)
+                self?.surface(fileURL: existing)
             }
             return .accepted
         }
@@ -252,7 +276,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             seenWirelessUploadsLock.unlock()
             Log.info("Delivered via Wireless Shortcut Batch: \(url.lastPathComponent)")
             DispatchQueue.main.async { [weak self] in
-                self?.wirelessBatchPresenter.enqueue(fileURL: url)
+                self?.surface(fileURL: url)
                 Pasteboard.write(fileURL: url)
             }
             return .accepted

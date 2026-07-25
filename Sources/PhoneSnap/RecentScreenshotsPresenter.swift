@@ -1,11 +1,11 @@
 import AppKit
 
 @MainActor
-final class WirelessBatchPresenter {
+final class RecentScreenshotsPresenter {
     /// Newest first. Persists across batches so the panel shows a running
     /// "recent from iPhone" strip rather than only the last run.
     private var items: [URL] = []
-    private var panelController: RecentFromIPhonePanelController?
+    private var panelController: RecentScreenshotsPanelController?
 
     private static let maxItems = 20
 
@@ -23,10 +23,15 @@ final class WirelessBatchPresenter {
             panelController.update(fileURLs: items)
             panelController.show()
         } else {
-            let controller = RecentFromIPhonePanelController(fileURLs: items) { [weak self] controller in
+            let controller = RecentScreenshotsPanelController(fileURLs: items) { [weak self] controller in
                 if self?.panelController === controller {
                     self?.panelController = nil
                 }
+            }
+            controller.onItemRemoved = { [weak self] removed in
+                guard let self else { return }
+                self.items.removeAll { $0 == removed }
+                self.panelController?.update(fileURLs: self.items)
             }
             panelController = controller
             controller.show()
@@ -35,22 +40,25 @@ final class WirelessBatchPresenter {
 }
 
 @MainActor
-final class RecentFromIPhonePanelController: NSObject {
+final class RecentScreenshotsPanelController: NSObject {
     private let panel: NSPanel
     private let scrollView = NSScrollView()
     private let stackView = NSStackView()
     private let emptyLabel = NSTextField(labelWithString: "No recent images")
     private let hintLabel = NSTextField(labelWithString: "Drag a thumbnail into any chat  •  Click to copy  •  Double-click to open")
-    private let onClosed: (RecentFromIPhonePanelController) -> Void
+    private let onClosed: (RecentScreenshotsPanelController) -> Void
+    /// Raised when a thumbnail trashes its file, so the owner can drop it
+    /// from the strip's backing list.
+    var onItemRemoved: ((URL) -> Void)?
     /// Cache so live batch updates reuse views instead of re-decoding images.
-    private var itemViews: [URL: RecentFromIPhoneThumbnailView] = [:]
+    private var itemViews: [URL: RecentScreenshotThumbnailView] = [:]
 
     private static let panelSize = NSSize(width: 760, height: 270)
     private static let edgeInset: CGFloat = 18
     private static let contentInset: CGFloat = 14
     private static let itemSize = NSSize(width: 118, height: 172)
 
-    init(fileURLs: [URL], onClosed: @escaping (RecentFromIPhonePanelController) -> Void) {
+    init(fileURLs: [URL], onClosed: @escaping (RecentScreenshotsPanelController) -> Void) {
         self.onClosed = onClosed
         let frame = Self.defaultFrame(size: Self.panelSize)
         panel = NSPanel(
@@ -61,7 +69,7 @@ final class RecentFromIPhonePanelController: NSObject {
         )
         super.init()
 
-        panel.title = "Recent from iPhone"
+        panel.title = "Recent Screenshots"
         panel.isReleasedWhenClosed = false
         panel.isFloatingPanel = true
         panel.level = .floating
@@ -159,15 +167,16 @@ final class RecentFromIPhonePanelController: NSObject {
 
         var index = 0
         for url in fileURLs {
-            let item: RecentFromIPhoneThumbnailView
+            let item: RecentScreenshotThumbnailView
             if let cached = itemViews[url] {
                 item = cached
             } else {
                 guard let image = NSImage(contentsOf: url) else {
-                    Log.error("Could not load wireless batch image at \(url.path)")
+                    Log.error("Could not load recent screenshot image at \(url.path)")
                     continue
                 }
-                item = RecentFromIPhoneThumbnailView(image: image, fileURL: url, size: Self.itemSize)
+                item = RecentScreenshotThumbnailView(image: image, fileURL: url, size: Self.itemSize)
+                item.onRemoved = { [weak self] removed in self?.onItemRemoved?(removed) }
                 item.translatesAutoresizingMaskIntoConstraints = false
                 NSLayoutConstraint.activate([
                     item.widthAnchor.constraint(equalToConstant: Self.itemSize.width),
@@ -196,7 +205,7 @@ final class RecentFromIPhonePanelController: NSObject {
     }
 }
 
-extension RecentFromIPhonePanelController: NSWindowDelegate {
+extension RecentScreenshotsPanelController: NSWindowDelegate {
     nonisolated func windowWillClose(_ notification: Notification) {
         Task { @MainActor in
             onClosed(self)
@@ -205,7 +214,7 @@ extension RecentFromIPhonePanelController: NSWindowDelegate {
 }
 
 @MainActor
-final class RecentFromIPhoneThumbnailView: NSView, NSDraggingSource {
+final class RecentScreenshotThumbnailView: NSView, NSDraggingSource {
     private let image: NSImage
     private let fileURL: URL
     private let imageLayer = CALayer()
@@ -250,6 +259,10 @@ final class RecentFromIPhoneThumbnailView: NSView, NSDraggingSource {
         addSubview(copiedLabel)
 
         toolTip = fileURL.lastPathComponent
+        // Click copies and double-click opens, but the single-thumbnail view
+        // also offers Save and Delete. Tiles this size have no room for
+        // buttons, so the rest of the actions live in a context menu.
+        menu = makeContextMenu()
 
         NSLayoutConstraint.activate([
             label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
@@ -266,9 +279,75 @@ final class RecentFromIPhoneThumbnailView: NSView, NSDraggingSource {
 
     required init?(coder: NSCoder) { fatalError("not supported") }
 
+    /// Removed from the strip by the owning panel when the file is trashed.
+    var onRemoved: ((URL) -> Void)?
+
+    private func makeContextMenu() -> NSMenu {
+        let menu = NSMenu()
+        let entries: [(String, Selector)] = [
+            ("Copy", #selector(copyAction)),
+            ("Open", #selector(openAction)),
+            ("Save a Copy...", #selector(saveAction)),
+            ("Reveal in Finder", #selector(revealAction)),
+            ("Move to Trash", #selector(trashAction))
+        ]
+        for (title, action) in entries {
+            if title == "Move to Trash" { menu.addItem(.separator()) }
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            item.target = self
+            menu.addItem(item)
+        }
+        return menu
+    }
+
+    @objc private func copyAction() {
+        Pasteboard.write(fileURL: fileURL)
+        flashCopied()
+    }
+
+    @objc private func openAction() {
+        NSWorkspace.shared.open(fileURL)
+    }
+
+    @objc private func saveAction() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = fileURL.lastPathComponent
+        panel.allowedContentTypes = [.png]
+        guard panel.runModal() == .OK, let destination = panel.url else { return }
+        do {
+            if FileManager.default.fileExists(atPath: destination.path) {
+                try FileManager.default.removeItem(at: destination)
+            }
+            try FileManager.default.copyItem(at: fileURL, to: destination)
+        } catch {
+            Log.error("Save a Copy failed: \(error)")
+            NSSound.beep()
+        }
+    }
+
+    @objc private func revealAction() {
+        NSWorkspace.shared.activateFileViewerSelecting([fileURL])
+    }
+
+    @objc private func trashAction() {
+        do {
+            try FileManager.default.trashItem(at: fileURL, resultingItemURL: nil)
+            onRemoved?(fileURL)
+        } catch {
+            Log.error("Move to Trash failed: \(error)")
+            NSSound.beep()
+        }
+    }
+
     /// The panel moves when dragged by its background; a drag that starts on
     /// a thumbnail must start an image drag instead of moving the window.
     override var mouseDownCanMoveWindow: Bool { false }
+
+    /// PhoneSnap is a menu bar app, so this panel is usually in an inactive
+    /// application. Without this, macOS spends the first click activating the
+    /// window instead of delivering it, so `mouseDown` never records a start
+    /// point and the first drag attempt silently does nothing.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func layout() {
         super.layout()
@@ -407,7 +486,7 @@ final class RecentFromIPhoneThumbnailView: NSView, NSDraggingSource {
     }
 }
 
-extension RecentFromIPhoneThumbnailView: NSPasteboardItemDataProvider {
+extension RecentScreenshotThumbnailView: NSPasteboardItemDataProvider {
     nonisolated func pasteboard(_ pasteboard: NSPasteboard?, item: NSPasteboardItem, provideDataForType type: NSPasteboard.PasteboardType) {
         // The file URL is written inline on the pasteboard item.
     }
