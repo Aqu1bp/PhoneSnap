@@ -4,17 +4,26 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
     private let wiredStatus: () -> String
     private let wirelessStatus: () -> String
+    private let wirelessEnabled: () -> Bool
+    private let onToggleWireless: (Bool) -> Void
+    private let onRotatePairing: () -> Void
     private let onShowLast: () -> Void
     private let onRevealFolder: () -> Void
     private let onSetupWireless: () -> Void
 
     init(wiredStatus: @escaping () -> String,
          wirelessStatus: @escaping () -> String,
+         wirelessEnabled: @escaping () -> Bool,
+         onToggleWireless: @escaping (Bool) -> Void,
+         onRotatePairing: @escaping () -> Void,
          onShowLast: @escaping () -> Void,
          onRevealFolder: @escaping () -> Void,
          onSetupWireless: @escaping () -> Void) {
         self.wiredStatus = wiredStatus
         self.wirelessStatus = wirelessStatus
+        self.wirelessEnabled = wirelessEnabled
+        self.onToggleWireless = onToggleWireless
+        self.onRotatePairing = onRotatePairing
         self.onShowLast = onShowLast
         self.onRevealFolder = onRevealFolder
         self.onSetupWireless = onSetupWireless
@@ -60,9 +69,31 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menu.addItem(wireless)
         menu.addItem(.separator())
 
+        let isEnabled = wirelessEnabled()
+        let toggle = NSMenuItem(
+            title: "Enable Wireless Receiver",
+            action: #selector(toggleWirelessAction),
+            keyEquivalent: ""
+        )
+        toggle.state = isEnabled ? .on : .off
+        toggle.target = self
+        toggle.toolTip = isEnabled
+            ? "PhoneSnap is listening for Shortcut uploads on this network."
+            : "Off — PhoneSnap opens no network listener. Wired capture is unaffected."
+        menu.addItem(toggle)
+
         let setup = NSMenuItem(title: "Set Up Wireless Shortcut...", action: #selector(setupWirelessAction), keyEquivalent: "")
         setup.target = self
         menu.addItem(setup)
+
+        let rotate = NSMenuItem(
+            title: "Rotate Pairing...",
+            action: #selector(rotatePairingAction),
+            keyEquivalent: ""
+        )
+        rotate.target = self
+        rotate.toolTip = "Generate a new pair ID and token. Installed Shortcuts must be set up again."
+        menu.addItem(rotate)
 
         menu.addItem(.separator())
 
@@ -82,6 +113,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     func menuWillOpen(_ menu: NSMenu) { refresh() }
 
+    @objc private func toggleWirelessAction() { onToggleWireless(!wirelessEnabled()) }
+    @objc private func rotatePairingAction() { onRotatePairing() }
     @objc private func setupWirelessAction() { onSetupWireless() }
     @objc private func showLastAction() { onShowLast() }
     @objc private func revealAction() { onRevealFolder() }
