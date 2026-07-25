@@ -40,7 +40,23 @@ USB is the primary path because macOS exposes a trusted plugged-in iPhone as a c
 
 Download the latest `PhoneSnap.zip` from [Releases](https://github.com/Aqu1bp/PhoneSnap/releases/latest), unzip it, then open `PhoneSnap.app`.
 
-PhoneSnap is not notarized yet, so macOS may block the first launch. If that happens, right-click `PhoneSnap.app`, choose **Open**, then confirm.
+PhoneSnap is ad-hoc signed but not notarized, so macOS blocks the first launch with **"Apple could not verify PhoneSnap is free of malware"**. That is expected. To allow it:
+
+**macOS 15 Sequoia and later** (Control-click → Open no longer bypasses this):
+
+1. Open `PhoneSnap.app` once and click **Done** on the dialog.
+2. Go to **System Settings → Privacy & Security**, scroll to **Security**, and click **Open Anyway** next to the note about PhoneSnap.
+3. Authenticate, then open the app again.
+
+**macOS 14 Sonoma and earlier:** Control-click `PhoneSnap.app`, choose **Open**, then confirm.
+
+Either way, clearing the quarantine flag works too and skips the dialog entirely:
+
+```bash
+xattr -dr com.apple.quarantine /path/to/PhoneSnap.app
+```
+
+If a build instead says **"PhoneSnap is damaged and can't be opened"**, that is not a corrupt download. Releases up to and including v0.1.1 shipped a bundle whose signature did not seal `Info.plist` and `Resources`, and macOS reports an invalid signature that way. Use v0.1.2 or later, or clear the quarantine flag as above.
 
 To build from source instead:
 
@@ -182,7 +198,7 @@ iPhone over Wi-Fi experimental
 - Shortcut signing depends on `/usr/bin/shortcuts sign --mode anyone`.
 - Wired mode shows one thumbnail at a time. A new wired screenshot dismisses the old wired thumbnail.
 - Screenshot detection uses dimensions/aspect-ratio heuristics to avoid importing normal camera photos.
-- No app sandbox and no notarization. First launch may require right-click -> Open or removing quarantine metadata.
+- No app sandbox, and ad-hoc signing rather than Developer ID notarization. First launch requires approving PhoneSnap in System Settings -> Privacy & Security, or removing quarantine metadata. See [Quick Start](#quick-start).
 - No automated iPhone end-to-end test; full wired/wireless verification requires a real trusted iPhone.
 
 ## Project Layout
