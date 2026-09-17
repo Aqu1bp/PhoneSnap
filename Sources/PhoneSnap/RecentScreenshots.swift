@@ -26,6 +26,7 @@ struct RecentScreenshots {
     private struct Item {
         let fileURL: URL
         let date: Date
+        let captureOrder: String
     }
 
     private var items: [Item] = []
@@ -37,11 +38,14 @@ struct RecentScreenshots {
 
     var fileURLs: [URL] { items.map(\.fileURL) }
 
-    mutating func insert(fileURL: URL, date: Date) {
+    mutating func insert(fileURL: URL, date: Date, captureOrder: String? = nil) {
         items.removeAll { $0.fileURL == fileURL }
-        items.append(Item(fileURL: fileURL, date: date))
+        items.append(Item(fileURL: fileURL, date: date, captureOrder: captureOrder ?? ""))
         items.sort {
             if $0.date != $1.date { return $0.date > $1.date }
+            if $0.captureOrder != $1.captureOrder {
+                return $0.captureOrder.compare($1.captureOrder, options: .numeric) == .orderedDescending
+            }
             // Equal timestamps must not shuffle when an image is re-sent.
             return $0.fileURL.absoluteString < $1.fileURL.absoluteString
         }

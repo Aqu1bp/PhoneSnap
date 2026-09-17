@@ -10,8 +10,8 @@ final class WirelessBatchPresenter {
     /// Shows the panel immediately on the first upload and appends live as
     /// the rest of the batch streams in — no debounce; waiting for the batch
     /// to go quiet made the panel feel several seconds late.
-    func enqueue(fileURL: URL, date: Date) {
-        items.insert(fileURL: fileURL, date: date)
+    func enqueue(fileURL: URL, date: Date, captureOrder: String? = nil) {
+        items.insert(fileURL: fileURL, date: date, captureOrder: captureOrder)
 
         if let panelController {
             panelController.update(fileURLs: items.fileURLs)

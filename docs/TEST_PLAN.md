@@ -104,3 +104,16 @@ First run may require iOS Photos and local-network permission. Existing installe
 4. Confirm the workflow contains `is.workflow.actions.repeat.each` around the upload action.
 5. Confirm the upload action still uses `POST`, the original upload URL, and `Authorization: Bearer <token>`.
 6. Confirm `X-PhoneSnap-Captured-At` uses the Repeat Item's **Date Taken**, formatted as `yyyy-MM-dd'T'HH:mm:ss.SSSXXXXX` (including milliseconds and timezone).
+
+## Automatic Wi-Fi preview
+
+- Fresh preferences: automatic capture off; legacy receiver remains independently off.
+- Native read-only hardware test: explicitly Network, no USB, existing pairing only.
+- One-time setup: selected USB phone, existing Trust, set/read back wireless enablement, unplug and wait for Ready.
+- Live: two or more screenshots arrive as PNG files, clipboard updates, recent panel latest first.
+- Rapid captures sharing an EXIF second: original DCIM sequence determines latest first even when received in reverse.
+- Lock/unlock and fresh connection: no baseline replay; new pending files survive.
+- USB handoff: confirm actual device identity fingerprints match between transports and no duplicate PNG is saved.
+- Disable during a read: no late presentation; re-enable begins a new baseline.
+- Corrupt/incomplete images: rejected and deferred; a single unreadable path must not starve later captures.
+- Packaging: launch an app copy outside the checkout, verify signatures and no Homebrew dylib paths, confirm Info.plist minimum >= every bundled binary’s minimum.

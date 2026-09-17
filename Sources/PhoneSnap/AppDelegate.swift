@@ -9,6 +9,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var wirelessReceiver: WirelessReceiver!
     private var wirelessSetupWindow: WirelessSetupWindowController!
     private let store = ImageStore()
+    private let automaticWatcher = AutomaticWirelessWatcher()
+    private var automaticSetup: AutomaticWirelessSetupWindow!
+    private var automaticState = AutomaticWirelessWatcher.Status(text: "Off")
+    private var automaticEnabled = false
+    private let captureQueue = DispatchQueue(label: "phonesnap.capture-delivery", qos: .userInitiated)
+    private var captureDelivery = AutomaticCaptureDelivery()
+    private var lastDeliveredURL: URL?
+    private var workspaceObservers: [NSObjectProtocol] = []
     /// Assigned in `applicationDidFinishLaunching`, after the enablement
     /// migration has had a chance to observe whether a pairing already
     /// existed — `WirelessPairing.load()` provisions one as a side effect.
@@ -43,7 +51,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 lanIP: nil
             )
         })
+        automaticSetup = AutomaticWirelessSetupWindow(watcher: automaticWatcher) { [weak self] phone in
+            AutomaticWirelessSettings.select(phone)
+            self?.setAutomaticEnabled(true)
+        }
+        automaticWatcher.onStatus = { [weak self] status in
+            self?.automaticState = status
+            self?.automaticSetup.updateStatus(status.text)
+            self?.refreshConnectionStatus()
+        }
+        automaticWatcher.onImage = { [weak self] data, name, capturedAt, phoneID, isCurrent in
+            self?.deliverAutomatic(data: data, name: name, capturedAt: capturedAt, deviceID: phoneID, wireless: true, isCurrent: isCurrent) ?? false
+        }
         statusItemController = StatusItemController(
+            automaticStatus: { [weak self] in self?.automaticState.text ?? "Off" },
+            automaticEnabled: { [weak self] in self?.automaticEnabled ?? false },
+            onToggleAutomatic: { [weak self] in self?.setAutomaticEnabled($0) },
+            onSetupAutomatic: { [weak self] in self?.automaticSetup.show() },
             wiredStatus: { [weak self] in
                 let names = self?.cameraBridge?.connectedDeviceNames ?? []
                 if names.isEmpty {
@@ -76,13 +100,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // ImageCaptureCore watches trusted USB-connected iPhones and emits
         // new camera-roll items created after app startup.
-        cameraBridge = CameraBridge { [weak self] data, name in
+        cameraBridge = CameraBridge { [weak self] data, name, capturedAt, deviceID in
             guard let self else { return }
-            _ = self.deliver(data: data, source: "Cable(\(name))")
+            _ = self.deliverAutomatic(data: data, name: name, capturedAt: capturedAt, deviceID: deviceID, wireless: false, isCurrent: { true })
         }
         cameraBridge.onDevicesChanged = { [weak self] names in
-            self?.statusItemController.setConnected(!names.isEmpty)
-            self?.statusItemController.refresh()
+            self?.refreshConnectionStatus()
         }
 
         if wirelessEnabled {
@@ -93,11 +116,75 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         Log.info("Starting wired iPhone screenshot watcher")
         cameraBridge.start()
+        if AutomaticWirelessSettings.enabled { setAutomaticEnabled(true) }
+        let center = NSWorkspace.shared.notificationCenter
+        workspaceObservers.append(center.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.automaticWatcher.stop()
+        })
+        workspaceObservers.append(center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            guard let self, self.automaticEnabled, let id = AutomaticWirelessSettings.phoneID else { return }
+            self.automaticWatcher.start(phoneID: id)
+        })
+        if ProcessInfo.processInfo.arguments.contains("--setup-wireless") { automaticSetup.show() }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        automaticWatcher.stop()
+        for observer in workspaceObservers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
         wirelessReceiver?.stop()
         cameraBridge?.stop()
+    }
+
+    private func refreshConnectionStatus() {
+        statusItemController.setConnected(automaticState.connected || !(cameraBridge?.connectedDeviceNames.isEmpty ?? true))
+        statusItemController.refresh()
+    }
+
+    @MainActor
+    private func setAutomaticEnabled(_ enabled: Bool) {
+        if enabled, AutomaticWirelessSettings.phoneID == nil { automaticSetup.show(); return }
+        automaticEnabled = enabled
+        AutomaticWirelessSettings.setEnabled(enabled)
+        if enabled, let id = AutomaticWirelessSettings.phoneID {
+            automaticState = .init(text: "Connecting…")
+            automaticWatcher.start(phoneID: id)
+        } else {
+            automaticSetup.cancelPendingEnable()
+            automaticWatcher.stop()
+            automaticWatcher.resetCatalog()
+            automaticState = .init(text: "Off")
+        }
+        automaticSetup.updateStatus(automaticState.text)
+        refreshConnectionStatus()
+    }
+
+    /// Save once across USB/Wi-Fi, then present on main. Shortcut replays keep their own semantics.
+    private func deliverAutomatic(data: Data, name: String, capturedAt: Date?, deviceID: String?, wireless: Bool, isCurrent: @escaping () -> Bool) -> Bool {
+        guard isCurrent() else { return false }
+        Log.info("Capture identity via \(wireless ? "Wi-Fi" : "USB"): \(AutomaticCaptureDelivery.fingerprint(deviceID))")
+        var savedURL: URL?
+        let accepted: Bool = captureQueue.sync {
+            let key = AutomaticCaptureDelivery.key(deviceID: deviceID, name: name, capturedAt: capturedAt, data: data)
+            if captureDelivery.contains(key) { return true }
+            do {
+                guard isCurrent() else { return false }
+                let url = try store.save(data: data)
+                captureDelivery.record(key)
+                savedURL = url
+                return true
+            } catch { Log.error("Automatic screenshot save failed: \(error)"); return false }
+        }
+        if let url = savedURL {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, isCurrent() else { return }
+                self.lastDeliveredURL = url
+                if wireless { self.wirelessBatchPresenter.enqueue(fileURL: url, date: capturedAt ?? Date(), captureOrder: name) }
+                else { self.presenter.present(fileURL: url) }
+                Pasteboard.write(fileURL: url)
+                Log.info("Delivered via \(wireless ? "Automatic Wi-Fi" : "Cable"): \(url.lastPathComponent)")
+            }
+        }
+        return accepted
     }
 
     // MARK: wireless lifecycle
@@ -188,6 +275,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// right after launch too.
     @MainActor
     private func showLastScreenshot() {
+        if let lastDeliveredURL, FileManager.default.fileExists(atPath: lastDeliveredURL.path) {
+            presenter.present(fileURL: lastDeliveredURL)
+            return
+        }
         if presenter.lastFileURL != nil {
             presenter.showLast()
             return
@@ -207,22 +298,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             hostName: LANAddress.bonjourHostName(),
             lanIP: LANAddress.currentIPv4()
         )
-    }
-
-    @discardableResult
-    private func deliver(data: Data, source: String) -> Bool {
-        do {
-            let url = try store.save(data: data)
-            Log.info("Delivered via \(source): \(url.lastPathComponent)")
-            DispatchQueue.main.async { [weak self] in
-                self?.presenter.present(fileURL: url)
-                Pasteboard.write(fileURL: url)
-            }
-            return true
-        } catch {
-            Log.error("Save failed (\(source)): \(error)")
-            return false
-        }
     }
 
     /// Hash → saved file for wireless uploads received this session. The
@@ -258,6 +333,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             seenWirelessUploadsLock.unlock()
             Log.info("Delivered via Wireless Shortcut Batch: \(url.lastPathComponent)")
             DispatchQueue.main.async { [weak self] in
+                self?.lastDeliveredURL = url
                 self?.wirelessBatchPresenter.enqueue(fileURL: url, date: item.sortDate)
                 Pasteboard.write(fileURL: url)
             }

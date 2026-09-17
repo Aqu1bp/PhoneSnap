@@ -10,9 +10,13 @@ let package = Package(
         .executable(name: "UsbmuxdProbe", targets: ["UsbmuxdProbe"])
     ],
     targets: [
+        .systemLibrary(name: "CLibIMobileDevice", pkgConfig: "libimobiledevice-1.0", providers: [.brew(["libimobiledevice"])]),
+        .systemLibrary(name: "CUsbmuxd", pkgConfig: "libusbmuxd-2.0", providers: [.brew(["libusbmuxd"])]),
         .executableTarget(
             name: "PhoneSnap",
-            path: "Sources/PhoneSnap"
+            dependencies: ["CLibIMobileDevice", "CUsbmuxd"],
+            path: "Sources/PhoneSnap",
+            linkerSettings: [.linkedLibrary("z")]
         ),
         .executableTarget(
             name: "ICProbe",
