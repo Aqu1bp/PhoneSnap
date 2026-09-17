@@ -119,6 +119,37 @@ final class WirelessReviewRegressionTests: XCTestCase {
         XCTAssertNil(catalog.suspendedRevision(for: "image"))
     }
 
+    func testNormalizationRejectionUsesTheRevisionBudgetOnEveryPlatform() throws {
+        let data = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")!
+        let phone = PhotoFixture(data: data)
+        let path = "/DCIM/100APPLE/decoder-rejection.png"
+        var catalog = AutomaticCaptureCatalog()
+        _ = catalog.observe([]); _ = catalog.observe([path])
+        var normalizationAttempts = 0
+        for _ in 0..<8 {
+            do {
+                let image = try phone.readImage(path, rejectedRevision: catalog.suspendedRevision(for: path))
+                _ = try image.deliver {
+                    normalizationAttempts += 1
+                    // Inject the decoder's real error type so this contract does
+                    // not depend on ImageIO's varying tolerance of damaged data.
+                    throw ImageStore.SaveError.noImage
+                }
+                XCTFail("A normalization rejection must propagate")
+            } catch PhoneConnectionError.invalidImage(let revision) {
+                catalog.rejectedImage(path, revision: revision)
+            } catch PhoneConnectionError.unchangedRejectedImage {
+                catalog.retry(path, after: Date().addingTimeInterval(60))
+            }
+        }
+        XCTAssertEqual(normalizationAttempts, AutomaticCaptureCatalog.invalidImageAttemptLimit)
+        XCTAssertEqual(phone.downloads, AutomaticCaptureCatalog.invalidImageAttemptLimit)
+        phone.modifiedAt = "2"
+        let changed = try phone.readImage(path, rejectedRevision: catalog.suspendedRevision(for: path))
+        XCTAssertTrue(try changed.deliver { true })
+        XCTAssertEqual(phone.downloads, AutomaticCaptureCatalog.invalidImageAttemptLimit + 1)
+    }
+
     func testCorruptHEICPixelsConsumeTheRevisionBudgetAndRepairRecovers() throws {
         let (valid, corrupt) = try makeHEICWithCorruptPixels()
         // ImageIO exposes dimensions and a lazy CGImage for this damaged file.
@@ -128,6 +159,13 @@ final class WirelessReviewRegressionTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = ImageStore(folder: directory)
+        // macOS 14 can normalize this damaged payload to a substitute image;
+        // newer decoders reject it. Keep the real-decoder regression where it
+        // reproduces, with unconditional error-propagation coverage above.
+        do {
+            _ = try store.save(data: corrupt)
+            throw XCTSkip("This ImageIO decoder accepts the damaged HEIC fixture; normalization rejection is tested independently")
+        } catch ImageStore.SaveError.noImage {}
         let phone = PhotoFixture(data: corrupt)
         let path = "/DCIM/100APPLE/corrupt-pixels.HEIC"
         let now = Date(timeIntervalSince1970: 1000)
