@@ -1,6 +1,6 @@
 # ARCHITECTURE - PhoneSnap
 
-PhoneSnap is a single-process macOS menu bar app. Its primary path watches a trusted USB-connected iPhone through ImageCaptureCore, downloads new screenshot-like camera-roll items, saves them as PNG files, copies them to the pasteboard, and presents a floating wired thumbnail. It also supports an opt-in automatic Wi-Fi watcher for one selected trusted phone and runs a separately enabled local HTTP receiver for the generated wireless Shortcut batch fallback.
+PhoneSnap is a single-process macOS menu bar app. Its primary path watches a trusted USB-connected iPhone through ImageCaptureCore, downloads new screenshot-like camera-roll items, saves them as PNG files, copies them to the pasteboard, and presents the chosen thumbnail style. It also supports an opt-in automatic Wi-Fi watcher for one selected trusted phone and runs a separately enabled local HTTP receiver for the generated wireless Shortcut batch fallback.
 
 ## Process Model
 
@@ -18,9 +18,9 @@ NSApplication
 ├── ThumbnailPresenter
 │   └── ThumbnailWindowController
 │       └── ThumbnailView
-└── WirelessBatchPresenter
-    └── RecentFromIPhonePanelController
-        └── RecentFromIPhoneThumbnailView
+└── RecentScreenshotsPresenter
+    └── RecentScreenshotsPanelController
+        └── RecentScreenshotThumbnailView
 ```
 
 ## CameraBridge
@@ -69,20 +69,20 @@ The receiver caps request bodies at 32 MB, accepts raw image bodies and multipar
 
 ## Image Pipeline
 
-Wired USB keeps the original single-thumbnail behavior:
+USB and automatic Wi-Fi share the automatic delivery path:
 
 1. `AppDelegate.deliverAutomatic(...)`
 2. `ImageStore.save(data:)`
 3. `ImageStore` decodes the incoming bytes with ImageIO, normalizes to PNG, and writes to `~/Pictures/PhoneSnap` unless `PHONESNAP_DIR` overrides it.
-4. Main queue presents the thumbnail and writes pasteboard data.
+4. Main queue writes pasteboard data and calls `surface`, which follows `ThumbnailSettings`: Recent Screenshots strip by default, or the latest-only floating thumbnail. Capture date and source sequence are passed to the strip.
 
-Wireless Shortcut uploads use a separate batch presentation path:
+Wireless Shortcut uploads retain batch deduplication and use the same presentation setting:
 
 1. `WirelessReceiver` accepts `POST /api/v1/upload/<pairId>`.
 2. `AppDelegate.deliverWireless(data:)` saves each image through `ImageStore`.
-3. Main queue writes the latest upload to pasteboard and enqueues the saved URL with `WirelessBatchPresenter`.
-4. `WirelessBatchPresenter` updates immediately in capture order and presents `RecentFromIPhonePanelController`.
-5. `RecentFromIPhoneThumbnailView` supports file URL drag-out for each saved image.
+3. Main queue writes the latest upload to pasteboard and calls `surface` with its capture date.
+4. In strip mode, `RecentScreenshotsPresenter` updates immediately in capture order and presents `RecentScreenshotsPanelController`.
+5. `RecentScreenshotThumbnailView` supports file URL drag-out for each saved image.
 
 ## UI
 
@@ -94,13 +94,14 @@ Wireless Shortcut uploads use a separate batch presentation path:
 - set up wireless Shortcut
 - show last screenshot
 - reveal save folder
+- settings for thumbnail style and Shortcut uploads
 - quit
 
 `ThumbnailWindowController` owns a borderless non-activating `NSPanel`. It anchors to the bottom-right of the screen containing the pointer, clamps inside the visible frame, fades in, and auto-dismisses after 8 seconds unless hovered.
 
 `ThumbnailView` handles the image, action buttons, ESC/command shortcuts, and file drag-out.
 
-`RecentFromIPhonePanelController` owns a titled floating panel named **Recent from iPhone**. It shows the current wireless batch in a horizontal strip and each thumbnail can be dragged to an agent app or file drop target. Wireless uploads do not show `ThumbnailPresenter` by default.
+`RecentScreenshotsPanelController` owns a titled floating panel named **Recent Screenshots**. It shows recent captures from all sources in a horizontal strip and each thumbnail can be dragged to an agent app or file drop target. Wireless uploads do not show `ThumbnailPresenter` by default.
 
 ## Configuration
 

@@ -8,11 +8,11 @@ import Foundation
 /// overriding `HOME` does *not* stop a test from reading and overwriting the
 /// developer's real pairing.
 enum AppDefaults {
-    static let store: UserDefaults = {
+    static let store: KeyValueStore = {
         guard let suite = ProcessInfo.processInfo.environment["PHONESNAP_DEFAULTS_SUITE"]?
             .trimmingCharacters(in: .whitespaces), !suite.isEmpty,
             let isolated = UserDefaults(suiteName: suite) else {
-            return .standard
+            return UserDefaults.standard
         }
         Log.info("Using isolated defaults suite \(suite)")
         return isolated

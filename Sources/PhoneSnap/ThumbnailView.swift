@@ -169,15 +169,46 @@ final class ThumbnailView: NSView, NSDraggingSource {
     }
 
     // MARK: drag-out
+    private var mouseDownLocation: NSPoint?
+    private var dragSessionActive = false
+
+    /// The panel sets `isMovableByWindowBackground`, which otherwise turns a
+    /// drag on the image into a window move and the drag session never starts.
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    /// PhoneSnap is a menu bar app, so its panels are usually in an inactive
+    /// application. Without this, macOS spends the first click activating the
+    /// window instead of delivering it, and the first drag attempt does
+    /// nothing — the user has to click away and try again.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        mouseDownLocation = event.locationInWindow
+        dragSessionActive = false
+    }
+
     override func mouseDragged(with event: NSEvent) {
-        let pt = convert(event.locationInWindow, from: nil)
-        guard imageRect().contains(pt) else { return }
+        // Start exactly one session per gesture, and only once the cursor has
+        // really moved. Beginning a session on every drag event made drags
+        // flaky and turned click jitter into failed drags.
+        guard !dragSessionActive, let down = mouseDownLocation else { return }
+        guard imageRect().contains(convert(down, from: nil)) else { return }
+        let dx = event.locationInWindow.x - down.x
+        let dy = event.locationInWindow.y - down.y
+        guard dx * dx + dy * dy >= 9 else { return }
+        dragSessionActive = true
+
         let pbItem = NSPasteboardItem()
         pbItem.setDataProvider(self, forTypes: [.fileURL])
         // Encode the file URL inline so even simple drop targets work.
         pbItem.setString(fileURL.absoluteString, forType: .fileURL)
+        // Also carry raw PNG bytes so drop targets that don't accept file
+        // URLs (web chat boxes, some agent UIs) still receive the image.
+        if let data = try? Data(contentsOf: fileURL) {
+            pbItem.setData(data, forType: .png)
+        }
+
         let draggingItem = NSDraggingItem(pasteboardWriter: pbItem)
-        let dragImage = image
         let dragSize = NSSize(width: min(160, bounds.width), height: min(120, bounds.height))
         let location = convert(event.locationInWindow, from: nil)
         let dragFrame = NSRect(
@@ -186,7 +217,7 @@ final class ThumbnailView: NSView, NSDraggingSource {
             width: dragSize.width,
             height: dragSize.height
         )
-        draggingItem.setDraggingFrame(dragFrame, contents: dragImage)
+        draggingItem.setDraggingFrame(dragFrame, contents: image)
         beginDraggingSession(with: [draggingItem], event: event, source: self)
     }
 
@@ -194,15 +225,21 @@ final class ThumbnailView: NSView, NSDraggingSource {
         return [.copy, .generic]
     }
 
+    func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        dragSessionActive = false
+        mouseDownLocation = nil
+    }
+
     override func mouseUp(with event: NSEvent) {
         // Click directly on the image (not in the bottom bar or close button)
         // opens the file in Preview. The bar/buttons handle their own events
         // because they're real subviews and will intercept the mouseDown.
-        if event.clickCount == 1 {
-            let pt = convert(event.locationInWindow, from: nil)
-            if imageRect().contains(pt) {
-                onOpen?()
-            }
+        let completedDrag = dragSessionActive
+        mouseDownLocation = nil
+        guard !completedDrag, event.clickCount == 1 else { return }
+        let pt = convert(event.locationInWindow, from: nil)
+        if imageRect().contains(pt) {
+            onOpen?()
         }
     }
 

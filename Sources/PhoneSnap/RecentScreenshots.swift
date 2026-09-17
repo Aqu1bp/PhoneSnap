@@ -38,6 +38,10 @@ struct RecentScreenshots {
 
     var fileURLs: [URL] { items.map(\.fileURL) }
 
+    mutating func remove(fileURL: URL) {
+        items.removeAll { $0.fileURL == fileURL }
+    }
+
     mutating func insert(fileURL: URL, date: Date, captureOrder: String? = nil) {
         items.removeAll { $0.fileURL == fileURL }
         items.append(Item(fileURL: fileURL, date: date, captureOrder: captureOrder ?? ""))

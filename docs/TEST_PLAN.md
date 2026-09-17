@@ -10,7 +10,7 @@ swift build -c release
 
 ## Wired End-to-End
 
-1. Launch the app.
+1. Launch the app. In Settings, select latest-only thumbnails for the controls below, then repeat capture in the default recent-strip mode.
 2. Plug in an iPhone.
 3. Unlock the iPhone and accept **Trust This Computer** if prompted.
 4. Take a screenshot.
@@ -77,8 +77,8 @@ Expected:
 - Shortcut download returns `200 OK` with `PhoneSnap.shortcut`, or a clear signing error if `/usr/bin/shortcuts sign` fails
 - upload returns `{"ok":true,...}`
 - a PNG is saved to `PHONESNAP_DIR`
-- wireless uploads do not show the wired bottom-right thumbnail
-- the Mac opens **Recent from iPhone** immediately and updates it as uploads arrive
+- fresh preferences use the recent strip; selecting latest-only in Settings applies to USB, automatic Wi-Fi, and Shortcut uploads
+- the Mac opens **Recent Screenshots** immediately and updates it as uploads arrive
 - missing/incorrect token returns `401 Unauthorized`
 
 ## Wireless iPhone End-to-End
@@ -89,7 +89,7 @@ Expected:
 4. Open/add `PhoneSnap.shortcut`.
 5. Take one or more screenshots.
 6. Run the PhoneSnap Shortcut.
-7. Confirm the Mac opens **Recent from iPhone**, each thumbnail drags into a file drop target, the files are saved, and the pasteboard contains the latest uploaded image.
+7. Confirm the Mac opens **Recent Screenshots**, each thumbnail drags into a file drop target, the files are saved, and the pasteboard contains the latest uploaded image.
 8. Confirm screenshots are ordered by capture time, newest on the left and oldest on the right, including screenshots taken within the same second.
 9. Re-run the Shortcut with the panel open, then after closing it. Confirm repeated screenshots keep their positions, even if the run is interrupted.
 10. Take another screenshot and repeat. Confirm it appears ahead of older screenshots. Re-add an older Shortcut before checking chronology if its uploads lack embedded capture dates.

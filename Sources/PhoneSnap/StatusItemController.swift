@@ -10,6 +10,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let wirelessStatus: () -> String
     private let wirelessEnabled: () -> Bool
     private let onToggleWireless: (Bool) -> Void
+    private let onOpenSettings: () -> Void
     private let onRotatePairing: () -> Void
     private let onShowLast: () -> Void
     private let onRevealFolder: () -> Void
@@ -23,6 +24,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
          wirelessStatus: @escaping () -> String,
          wirelessEnabled: @escaping () -> Bool,
          onToggleWireless: @escaping (Bool) -> Void,
+         onOpenSettings: @escaping () -> Void,
          onRotatePairing: @escaping () -> Void,
          onShowLast: @escaping () -> Void,
          onRevealFolder: @escaping () -> Void,
@@ -35,6 +37,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         self.wirelessStatus = wirelessStatus
         self.wirelessEnabled = wirelessEnabled
         self.onToggleWireless = onToggleWireless
+        self.onOpenSettings = onOpenSettings
         self.onRotatePairing = onRotatePairing
         self.onShowLast = onShowLast
         self.onRevealFolder = onRevealFolder
@@ -136,6 +139,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menu.addItem(reveal)
 
         menu.addItem(.separator())
+        let settings = NSMenuItem(title: "Settings...", action: #selector(settingsAction), keyEquivalent: ",")
+        settings.target = self
+        menu.addItem(settings)
+
         let quit = NSMenuItem(title: "Quit PhoneSnap", action: #selector(quitAction), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
@@ -146,6 +153,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     @objc private func toggleAutomaticAction() { onToggleAutomatic(!automaticEnabled()) }
     @objc private func setupAutomaticAction() { onSetupAutomatic() }
     @objc private func toggleWirelessAction() { onToggleWireless(!wirelessEnabled()) }
+    @objc private func settingsAction() { onOpenSettings() }
     @objc private func rotatePairingAction() { onRotatePairing() }
     @objc private func setupWirelessAction() { onSetupWireless() }
     @objc private func showLastAction() { onShowLast() }

@@ -28,7 +28,7 @@ struct AutomaticCaptureCatalog {
 
 /// Opt-in is independent from the legacy Shortcut HTTP receiver.
 enum AutomaticWirelessSettings {
-    static var enabled: Bool { AppDefaults.store.bool(forKey: "PhoneSnapAutomaticWirelessEnabled") }
+    static var enabled: Bool { AppDefaults.store.object(forKey: "PhoneSnapAutomaticWirelessEnabled") as? Bool ?? false }
     static var phoneID: String? { AppDefaults.store.string(forKey: "PhoneSnapAutomaticWirelessPhoneID") }
     static func setEnabled(_ enabled: Bool) { AppDefaults.store.set(enabled, forKey: "PhoneSnapAutomaticWirelessEnabled") }
     static func select(_ phone: PhoneDevice) {

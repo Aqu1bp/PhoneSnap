@@ -20,6 +20,10 @@ BIN=".build/debug/PhoneSnap"
 # read and overwrote the developer's real PhoneSnap pairing. Use a throwaway
 # defaults suite instead and remove it on the way out.
 SUITE="phonesnap.smoke.$$"
+# Captured before HOME is redirected below, so cleanup can find the plist that
+# cfprefsd actually wrote. `defaults delete` empties the suite but leaves the
+# file behind.
+REAL_PREFS="$HOME/Library/Preferences"
 
 cleanup() {
   if [ -n "${APP_PID:-}" ]; then
@@ -27,6 +31,7 @@ cleanup() {
     wait "$APP_PID" 2>/dev/null || true
   fi
   defaults delete "$SUITE" 2>/dev/null || true
+  rm -f "$REAL_PREFS/$SUITE.plist" 2>/dev/null || true
   rm -rf "$DIR"
 }
 trap cleanup EXIT

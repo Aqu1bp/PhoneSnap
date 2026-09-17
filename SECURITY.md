@@ -32,7 +32,7 @@ separately enabled Shortcut receiver.
 
 The wireless receiver is **off on a new install**. Nothing listens on the
 network until you turn it on, either by opening **Set Up Wireless Shortcut…**
-or with the **Enable Wireless Receiver** menu item. The choice persists across
+or with the **Enable Shortcut Upload Receiver** menu item. The choice persists across
 launches, and the same menu item turns it back off.
 
 Installs that were already paired before this setting existed keep the
