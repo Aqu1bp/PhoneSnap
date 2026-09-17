@@ -5,7 +5,7 @@ Thanks for your interest in PhoneSnap!
 ## Building
 
 ```bash
-brew install pkgconf libimobiledevice
+brew install pkgconf libimobiledevice openssl@3
 swift build            # debug build of all targets
 ./scripts/build-app.sh # release build wrapped into PhoneSnap.app
 ./scripts/smoke-test.sh # wireless receiver smoke test after swift build
@@ -36,7 +36,7 @@ are good places to start.
 
 ## Guidelines
 
-- Keep the app dependency-free (AppKit + system frameworks only).
+- Keep dependencies limited: AppKit/system frameworks for USB and UI, bundled libimobiledevice/OpenSSL for trusted automatic Wi-Fi. End users must not need Homebrew or Python.
 - Wired USB is the primary path; wireless is a fallback. Don't regress wired
   behavior to improve wireless.
 - Read [SECURITY.md](SECURITY.md) before changing the wireless receiver —

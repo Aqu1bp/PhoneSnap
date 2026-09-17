@@ -6,10 +6,11 @@ struct PhoneDevice: Equatable {
     let id: String
     let name: String
     let isUSB: Bool
+    var directEndpoint: DirectPhoneEndpoint? = nil
 }
 
 enum PhoneConnectionError: LocalizedError {
-    case unavailable, trustRequired, failed(String, Int32), incomplete, unsupported, cancelled, transportLost(Int32)
+    case unavailable, trustRequired, locked, failed(String, Int32), incomplete, unsupported, cancelled, transportLost(Int32)
     var errorDescription: String? {
         switch self {
         case .transportLost: return "Wi-Fi connection interrupted. Reconnecting…"
@@ -17,6 +18,7 @@ enum PhoneConnectionError: LocalizedError {
         case .cancelled: return "Capture stopped."
         case .unavailable: return "Connect your iPhone by cable, unlock it, and trust this Mac."
         case .trustRequired: return "Unlock your iPhone and approve Trust in Finder and on the iPhone, then try again."
+        case .locked: return "Unlock your iPhone to allow photo access. PhoneSnap will reconnect automatically."
         case .failed(let operation, let code): return "\(operation) failed (\(code)). Keep the iPhone unlocked and on the same Wi-Fi as this Mac."
         case .incomplete: return "The image is still being saved. PhoneSnap will retry."
         }
@@ -24,7 +26,7 @@ enum PhoneConnectionError: LocalizedError {
 }
 
 /// Confined to the watcher's serial queue. Never creates or replaces pairing records.
-final class PhoneDeviceConnection {
+final class PhoneDeviceConnection: PhonePhotoConnection {
     private var device: idevice_t?
     private var lockdown: lockdownd_client_t?
     private var afc: afc_client_t?
@@ -124,19 +126,6 @@ final class PhoneDeviceConnection {
         return strings(entries).filter { $0 != "." && $0 != ".." && !$0.contains("/") }
     }
 
-    func imagePaths(isCurrent: () -> Bool = { true }) throws -> Set<String> {
-        var paths = Set<String>()
-        for directory in try list("/DCIM") {
-            guard isCurrent() else { throw PhoneConnectionError.cancelled }
-            let path = "/DCIM/" + directory
-            guard try info(path)["st_ifmt"] == "S_IFDIR" else { continue }
-            for file in try list(path) where ["png", "heic", "heif", "jpg", "jpeg"].contains((file as NSString).pathExtension.lowercased()) {
-                paths.insert(path + "/" + file)
-            }
-        }
-        return paths
-    }
-
     func info(_ path: String) throws -> [String: String] {
         var entries: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
         try checkAFC(afc_get_file_info(afc, path, &entries), "Reading photo details")
@@ -147,11 +136,7 @@ final class PhoneDeviceConnection {
         return result
     }
 
-    func readImage(_ path: String, isCurrent: () -> Bool = { true }) throws -> (Data, Date?) {
-        let deadline = Date().addingTimeInterval(30)
-        let before = try info(path)
-        guard before["st_ifmt"] == "S_IFREG", let size = before["st_size"].flatMap(Int.init), size > 0 else { throw PhoneConnectionError.incomplete }
-        guard size <= 32 * 1024 * 1024 else { throw PhoneConnectionError.unsupported }
+    func readFile(_ path: String, size: Int, deadline: TimeInterval, isCurrent: () -> Bool) throws -> Data {
         var handle: UInt64 = 0
         try checkAFC(afc_file_open(afc, path, AFC_FOPEN_RDONLY, &handle), "Reading the screenshot")
         defer { afc_file_close(afc, handle) }
@@ -160,7 +145,7 @@ final class PhoneDeviceConnection {
         try data.withUnsafeMutableBytes { (buffer: UnsafeMutableRawBufferPointer) in
             while offset < size {
                 guard isCurrent() else { throw PhoneConnectionError.cancelled }
-                guard Date() < deadline else { throw PhoneConnectionError.incomplete }
+                guard ProcessInfo.processInfo.systemUptime < deadline else { throw PhoneConnectionError.incomplete }
                 var received: UInt32 = 0
                 let length = UInt32(min(256 * 1024, size - offset))
                 try checkAFC(afc_file_read(afc, handle, buffer.baseAddress!.advanced(by: offset).assumingMemoryBound(to: CChar.self), length, &received), "Downloading the screenshot")
@@ -168,11 +153,7 @@ final class PhoneDeviceConnection {
                 offset += Int(received)
             }
         }
-        let after = try info(path)
-        guard before["st_size"] == after["st_size"], before["st_mtime"] == after["st_mtime"],
-              CompleteImage.isComplete(data) else { throw PhoneConnectionError.incomplete }
-        let date = after["st_birthtime"].flatMap(Double.init).map { Date(timeIntervalSince1970: $0 / 1_000_000_000) }
-        return (data, date)
+        return data
     }
 
     private func strings(_ pointer: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?) -> [String] {

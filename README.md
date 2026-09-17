@@ -31,7 +31,7 @@ USB uses ImageCaptureCore. Automatic Wi-Fi uses the existing trusted device conn
 ## Requirements
 
 - macOS matching the built app’s minimum version. Swift sources target macOS 13; bundled native libraries can raise the minimum. The local Tahoe preview requires macOS 26. Build on the oldest macOS version you intend to support and test there.
-- Swift 5.9+ / Xcode 15+, `pkgconf`, and `libimobiledevice` to build. Distributed app bundles include their native libraries; users do not need Homebrew or Python.
+- Swift 5.9+ / Xcode 15+, `pkgconf`, `libimobiledevice`, and `openssl@3` to build. Distributed app bundles include their native libraries; users do not need Homebrew or Python.
 - iPhone or iPad that appears to macOS through ImageCaptureCore
 - USB or USB-C cable for wired mode
 - Same Wi-Fi/LAN and one-time trusted cable setup for automatic Wi-Fi; tested with iOS 26.5. Same LAN for Shortcut uploads.
@@ -47,7 +47,7 @@ To build from source instead:
 ```bash
 git clone https://github.com/Aqu1bp/PhoneSnap.git
 cd PhoneSnap
-brew install pkgconf libimobiledevice
+brew install pkgconf libimobiledevice openssl@3
 ./scripts/build-app.sh
 open ./PhoneSnap.app
 ```
@@ -68,7 +68,7 @@ Behind the scenes, PhoneSnap uses Apple's ImageCaptureCore framework. macOS expo
 
 ### Automatic Wi-Fi Screenshots
 
-This preview has passed capture tests with an already discoverable paired iPhone and after a controlled unpair/re-pair test. The latter needed a prolonged Mac discovery recovery before capture worked; app restart then reconnected automatically. Consistently quick first-time onboarding is not yet established; see the [test results](docs/AUTOMATIC_WIRELESS.md#fresh-pairing-test--17-september-2026).
+This preview has passed capture tests with an already paired iPhone and after a controlled unpair/re-pair test. It now discovers and connects directly to the trusted phone when Apple's device list is delayed; a forced direct-route test reached Ready in about 4.6 seconds and received both screenshots. Consistently quick first-time onboarding on a second Mac is not yet established; see the [test results](docs/AUTOMATIC_WIRELESS.md).
 
 1. Choose **Set Up Automatic Wi-Fi…** in the PhoneSnap menu.
 2. For a new phone, plug it in, unlock it, select it in Finder, and approve **Trust** on both devices.
@@ -163,7 +163,14 @@ iPhone over USB
     -> writes PNG/TIFF/file URL to NSPasteboard
     -> shows a floating NSPanel thumbnail
 
-iPhone over Wi-Fi
+iPhone over automatic Wi-Fi
+  trusted phone discovered through Apple's device list or Bonjour
+    -> existing pairing authenticates the photo connection
+    -> initial catalog is skipped before Ready
+    -> new screenshots are read, saved, and copied to the clipboard
+    -> Mac updates Recent from iPhone in capture order
+
+iPhone over Wi-Fi with Shortcut fallback
   user runs generated PhoneSnap Shortcut
     -> Shortcut reads the latest screenshot batch from Photos
     -> repeats over the screenshots
@@ -243,7 +250,7 @@ PhoneSnap/
 
 ## Security
 
-Wireless mode runs a plain-HTTP receiver on your LAN, protected by a random pair ID and bearer token. It is off until you turn it on, so a wired-only install opens no network listener. Read [SECURITY.md](SECURITY.md) before enabling it on a shared network.
+Automatic Wi-Fi makes authenticated outbound connections using the selected phone's existing Apple pairing. The separate Shortcut fallback runs a plain-HTTP receiver on your LAN, protected by a random pair ID and bearer token. That receiver is off until enabled. Read [SECURITY.md](SECURITY.md) for each mode's protections and limits.
 
 ## Contributing
 

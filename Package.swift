@@ -12,9 +12,11 @@ let package = Package(
     targets: [
         .systemLibrary(name: "CLibIMobileDevice", pkgConfig: "libimobiledevice-1.0", providers: [.brew(["libimobiledevice"])]),
         .systemLibrary(name: "CUsbmuxd", pkgConfig: "libusbmuxd-2.0", providers: [.brew(["libusbmuxd"])]),
+        .systemLibrary(name: "COpenSSL", pkgConfig: "openssl", providers: [.brew(["openssl@3"])]),
+        .target(name: "PhoneTCP", dependencies: ["COpenSSL"]),
         .executableTarget(
             name: "PhoneSnap",
-            dependencies: ["CLibIMobileDevice", "CUsbmuxd"],
+            dependencies: ["CLibIMobileDevice", "CUsbmuxd", "PhoneTCP"],
             path: "Sources/PhoneSnap",
             linkerSettings: [.linkedLibrary("z")]
         ),
@@ -29,7 +31,8 @@ let package = Package(
         .testTarget(
             name: "PhoneSnapTests",
             dependencies: ["PhoneSnap"],
-            path: "Tests/PhoneSnapTests"
+            path: "Tests/PhoneSnapTests",
+            resources: [.copy("Fixtures/direct_phone_server.py")]
         )
     ]
 )

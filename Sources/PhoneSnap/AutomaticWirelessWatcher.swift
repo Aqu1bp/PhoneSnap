@@ -14,22 +14,52 @@ final class AutomaticWirelessWatcher {
     private let lock = NSLock()
     private var generation = UUID()
     private var running = false
-    private var connection: PhoneDeviceConnection?
+    private var requestedPhoneID: String?
+    private var connection: PhonePhotoConnection?
+    private let discovery = DirectPhoneDiscovery()
+    private var scheduledPoll: DispatchWorkItem?
+    private var connectionStartedAt: TimeInterval?
+    private let directOnly = ProcessInfo.processInfo.environment["PHONESNAP_DIRECT_WIFI_ONLY"] == "1"
     private var catalog = AutomaticCaptureCatalog()
     private var selectedID: String?
     private var lastStatus: Status?
 
+    init() {
+        discovery.onChange = { [weak self] in
+            self?.queue.async { [weak self] in
+                guard let self, let target = self.activeTarget() else { return }
+                self.schedule(phoneID: target.phoneID, token: target.token, after: 0)
+            }
+        }
+    }
+
+    private func activeTarget() -> (phoneID: String, token: UUID)? {
+        lock.lock(); defer { lock.unlock() }
+        guard running, let requestedPhoneID else { return nil }
+        return (requestedPhoneID, generation)
+    }
+
+    private func schedule(phoneID: String, token: UUID, after delay: TimeInterval) {
+        scheduledPoll?.cancel()
+        let item = DispatchWorkItem { [weak self] in self?.poll(phoneID: phoneID, token: token) }
+        scheduledPoll = item
+        queue.asyncAfter(deadline: .now() + delay, execute: item)
+    }
+
     func start(phoneID: String) {
         stop()
+        discovery.start()
         lock.lock()
         let token = UUID()
         generation = token
+        requestedPhoneID = phoneID
         running = true
         lock.unlock()
         queue.async { [weak self] in
             guard let self, self.active(token) else { return }
             if self.selectedID != phoneID { self.catalog = AutomaticCaptureCatalog() }
             self.selectedID = phoneID
+            self.connectionStartedAt = ProcessInfo.processInfo.systemUptime
             self.poll(phoneID: phoneID, token: token)
         }
     }
@@ -37,9 +67,14 @@ final class AutomaticWirelessWatcher {
     func stop() {
         lock.lock()
         running = false
+        requestedPhoneID = nil
         generation = UUID()
         lock.unlock()
-        queue.async { [weak self] in self?.connection = nil; self?.lastStatus = nil }
+        discovery.stop()
+        queue.async { [weak self] in
+            self?.scheduledPoll?.cancel(); self?.scheduledPoll = nil
+            self?.connection = nil; self?.lastStatus = nil
+        }
     }
 
     func resetCatalog() {
@@ -52,8 +87,17 @@ final class AutomaticWirelessWatcher {
     }
 
     func devices(completion: @escaping (Result<[PhoneDevice], Error>) -> Void) {
+        discovery.start()
         queue.async {
-            let result = Result { try PhoneDeviceConnection.devices(resolveNames: true) }
+            let result = Result {
+                var devices = try PhoneDeviceConnection.devices(resolveNames: true)
+                if let id = AutomaticWirelessSettings.phoneID, !devices.contains(where: { $0.id == id }),
+                   let pairing = try? PhonePairingRecord(deviceID: id), let endpoint = self.discovery.endpoint(for: pairing) {
+                    let name = AppDefaults.store.string(forKey: "PhoneSnapAutomaticWirelessPhoneName") ?? "iPhone"
+                    devices.append(PhoneDevice(id: id, name: name, isUSB: false, directEndpoint: endpoint))
+                }
+                return devices
+            }
             DispatchQueue.main.async { completion(result) }
         }
     }
@@ -62,8 +106,13 @@ final class AutomaticWirelessWatcher {
     func enableWiFi(for phone: PhoneDevice, completion: @escaping (Result<Void, Error>) -> Void) {
         queue.async {
             let result = Result {
-                let connection = try PhoneDeviceConnection(phone: phone)
-                try connection.enableWiFi()
+                if let endpoint = phone.directEndpoint {
+                    let pairing = try PhonePairingRecord(deviceID: phone.id)
+                    _ = try DirectPhoneConnection(endpoint: endpoint, pairing: pairing, isCurrent: { true })
+                } else {
+                    let connection = try PhoneDeviceConnection(phone: phone)
+                    try connection.enableWiFi()
+                }
             }
             DispatchQueue.main.async { completion(result) }
         }
@@ -80,7 +129,8 @@ final class AutomaticWirelessWatcher {
     }
 
     private func poll(phoneID: String, token: UUID) {
-        guard active(token) else { return }
+        // A discovery wake can precede start's queued catalog initialization.
+        guard active(token), selectedID == phoneID else { return }
         var delay = 0.75
         do {
             let devices = try PhoneDeviceConnection.devices()
@@ -88,18 +138,41 @@ final class AutomaticWirelessWatcher {
                 connection = nil
                 publish(Status(text: "Cable connected — unplug to use automatic Wi-Fi"), token: token)
                 delay = 3
-            } else if let phone = devices.first(where: { $0.id == phoneID && !$0.isUSB }) {
+            } else {
                 if connection == nil {
-                    publish(Status(text: "Connecting to your iPhone over Wi-Fi…"), token: token)
-                    let opened = try PhoneDeviceConnection(phone: phone)
-                    try opened.openPhotos()
-                    connection = opened
+                    let native = devices.first { $0.id == phoneID && !$0.isUSB }
+                    let pairing = try? PhonePairingRecord(deviceID: phoneID)
+                    let endpoint = pairing.flatMap { discovery.endpoint(for: $0) }
+                    if !directOnly, let native {
+                        publish(Status(text: "Connecting to your iPhone over Wi-Fi…"), token: token)
+                        do {
+                            let opened = try PhoneDeviceConnection(phone: native)
+                            try opened.openPhotos(); connection = opened
+                        } catch {
+                            guard endpoint != nil else { throw error }
+                        }
+                    }
+                    if connection == nil, let pairing, let endpoint {
+                        publish(Status(text: "Connecting to your iPhone over Wi-Fi…"), token: token)
+                        let opened = try DirectPhoneConnection(endpoint: endpoint, pairing: pairing, isCurrent: { [weak self] in self?.active(token) == true })
+                        try opened.openPhotos(); connection = opened
+                        Log.info("Automatic Wi-Fi: connected directly to the selected trusted iPhone")
+                    }
+                    if connection == nil {
+                        publish(Status(text: "Looking for your iPhone on Wi-Fi. Unlock it to reconnect."), token: token)
+                        schedule(phoneID: phoneID, token: token, after: 1)
+                        return
+                    }
                 }
                 guard let connection, active(token) else { return }
                 let paths = try connection.imagePaths(isCurrent: { self.active(token) })
                 guard active(token) else { return }
                 let baseline = catalog.observe(paths)
                 if baseline { Log.info("Automatic Wi-Fi: catalog ready; \(paths.count) existing images skipped") }
+                if let started = connectionStartedAt {
+                    Log.info("Automatic Wi-Fi: Ready after \(String(format: "%.3f", ProcessInfo.processInfo.systemUptime - started))s")
+                    connectionStartedAt = nil
+                }
                 publish(Status(text: "Ready — take a screenshot on your iPhone", connected: true, ready: true), token: token)
                 for path in catalog.due(at: Date()).prefix(4) {
                     guard active(token) else { return }
@@ -131,10 +204,6 @@ final class AutomaticWirelessWatcher {
                         Log.error("Automatic Wi-Fi: image read deferred: \(error.localizedDescription)")
                     }
                 }
-            } else {
-                connection = nil
-                publish(Status(text: "Waiting for your iPhone — same Wi-Fi; unlock to reconnect"), token: token)
-                delay = 3
             }
         } catch {
             connection = nil
@@ -142,6 +211,6 @@ final class AutomaticWirelessWatcher {
             delay = 5
         }
         guard active(token) else { return }
-        queue.asyncAfter(deadline: .now() + delay) { [weak self] in self?.poll(phoneID: phoneID, token: token) }
+        schedule(phoneID: phoneID, token: token, after: delay)
     }
 }

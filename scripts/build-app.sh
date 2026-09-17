@@ -63,6 +63,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <true/>
   <key>NSLocalNetworkUsageDescription</key>
   <string>PhoneSnap connects to your trusted iPhone on Wi-Fi to receive new screenshots.</string>
+  <key>NSBonjourServices</key>
+  <array><string>_apple-mobdev2._tcp</string></array>
   <key>NSHumanReadableCopyright</key>
   <string>Local-only utility, no telemetry.</string>
 </dict>

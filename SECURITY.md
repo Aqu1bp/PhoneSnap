@@ -1,7 +1,32 @@
 # Security
 
 PhoneSnap is a local developer tool. This document describes its threat model
-so users can decide whether the wireless mode is appropriate for their network.
+so users can decide which capture mode is appropriate for their network.
+
+## Automatic Wi-Fi capture
+
+Automatic capture is independently off on a new install. It uses the selected
+iPhone's existing Apple pairing and makes outbound photo-service connections;
+it does not start the Shortcut HTTP receiver. A new pairing still requires the
+user's cable/Finder/phone Trust flow. Only the explicit Enable Wireless setup
+action changes the phone's wireless-access preference. Capture reads photo
+files without modifying them.
+
+When Apple's Network device entry is unavailable, Bonjour supplies a candidate
+address. Its advertisement must match the selected pairing, but that match is
+not treated as authentication. The direct connection authenticates with the
+saved host certificate, pins the saved device certificate's public key, and
+verifies the selected device identifier inside TLS before opening AFC. Host
+certificates and private keys are read from the existing pairing record into
+memory, not copied into PhoneSnap preferences, files, or logs. AFC uses pinned
+TLS when the phone requests it; the tested iOS 26.5 phone did request it. A phone
+that does not request AFC TLS can expose photo data to a network observer.
+
+Direct reads have size bounds, operation deadlines, and cancellation. Images
+must pass the same stable-size, complete-container, and decode checks as the
+native route. A process running as the same Mac user remains outside this
+protection boundary. The bearer-token and plain-HTTP details below concern the
+separately enabled Shortcut receiver.
 
 ## When the listener runs
 
@@ -28,7 +53,7 @@ a network listener and screenshots never leave the machine. If you have never
 turned the wireless receiver on, none of the wireless threat model below
 applies to you.
 
-## Wireless mode threat model
+## Shortcut receiver threat model
 
 Protections and their limits:
 
@@ -96,7 +121,8 @@ Protections and their limits:
 
 ## What PhoneSnap does not defend against
 
-- An attacker who can read your LAN traffic. There is no TLS; see above.
+- An attacker who can read your Shortcut receiver traffic. That path has no
+  TLS; see above. Automatic photo access follows the phone's service TLS flag.
 - An attacker who obtains the pair ID. It is the only gate on the setup and
   Shortcut download routes. Rotate if you believe it has leaked.
 - Any process running as your user. It can read the credentials out of

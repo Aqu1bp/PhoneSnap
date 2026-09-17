@@ -109,6 +109,8 @@ First run may require iOS Photos and local-network permission. Existing installe
 
 - Fresh preferences: automatic capture off; legacy receiver remains independently off.
 - Native read-only hardware test: explicitly Network, no USB, existing pairing only.
+- Direct fallback: launch the preview executable with `PHONESNAP_DIRECT_WIFI_ONLY=1`, no cable, and existing pairing. Confirm logs identify direct photo access, record time to actual Ready, and take two screenshots. Restart with the same preferences, confirm the old catalog is skipped and a new capture arrives. Remove the override afterward. No unpairing or system service restart is needed.
+- Direct transport automated checks: fragmented reads with and without TLS, wrong certificate rejection, early stream closure, stalled-operation cancellation, aggregate plist deadline, AFC frame bounds/sequence, and modern advertisement identity without legacy downgrade.
 - One-time setup: selected USB phone, existing Trust, set/read back wireless enablement, unplug and wait for Ready.
 - Fresh pairing: use a phone/Mac without prior pairing or an explicitly approved scoped reset, plus empty app preferences. Verify Enable rejects missing Trust; complete Finder/phone Trust; verify USB Enable survives its full cleanup and reads back enabled. Require an unplugged authenticated app connection and two captures before marking setup passed. A changed phone flag or direct diagnostic connection alone is insufficient. Record setup delay and recovery actions separately; see `AUTOMATIC_WIRELESS.md`.
 - Live: two or more screenshots arrive as PNG files, clipboard updates, recent panel latest first.
