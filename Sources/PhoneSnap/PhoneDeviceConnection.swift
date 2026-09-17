@@ -1,6 +1,7 @@
 import Foundation
 import CLibIMobileDevice
 import CUsbmuxd
+import Darwin
 
 struct PhoneDevice: Equatable {
     let id: String
@@ -10,7 +11,8 @@ struct PhoneDevice: Equatable {
 }
 
 enum PhoneConnectionError: LocalizedError {
-    case unavailable, trustRequired, locked, failed(String, Int32), incomplete, unsupported, cancelled, transportLost(Int32)
+    case unavailable, trustRequired, locked, secureWiFiRequired, failed(String, Int32), incomplete, unsupported, cancelled, transportLost(Int32)
+    case invalidImage(PhoneFileRevision), unchangedRejectedImage
     var errorDescription: String? {
         switch self {
         case .transportLost: return "Wi-Fi connection interrupted. Reconnecting…"
@@ -19,8 +21,10 @@ enum PhoneConnectionError: LocalizedError {
         case .unavailable: return "Connect your iPhone by cable, unlock it, and trust this Mac."
         case .trustRequired: return "Unlock your iPhone and approve Trust in Finder and on the iPhone, then try again."
         case .locked: return "Unlock your iPhone to allow photo access. PhoneSnap will reconnect automatically."
+        case .secureWiFiRequired: return "This connection cannot verify secure Wi-Fi photo access. Use a cable to capture screenshots."
         case .failed(let operation, let code): return "\(operation) failed (\(code)). Keep the iPhone unlocked and on the same Wi-Fi as this Mac."
         case .incomplete: return "The image is still being saved. PhoneSnap will retry."
+        case .invalidImage, .unchangedRejectedImage: return "This image could not be validated. It will be retried if the file changes."
         }
     }
 }
@@ -43,10 +47,12 @@ final class PhoneDeviceConnection: PhonePhotoConnection {
             let id = String(cString: udid)
             let usb = info.pointee.conn_type == CONNECTION_USBMUXD
             var name = "iPhone"
-            if resolveNames {
+            // libimobiledevice's network TLS does not verify the peer. Never use
+            // it even for display names; network addresses are only candidates.
+            if resolveNames && usb {
                 var raw: idevice_t?
                 var client: lockdownd_client_t?
-                if idevice_new_with_options(&raw, id, usb ? IDEVICE_LOOKUP_USBMUX : IDEVICE_LOOKUP_NETWORK) == IDEVICE_E_SUCCESS {
+                if idevice_new_with_options(&raw, id, IDEVICE_LOOKUP_USBMUX) == IDEVICE_E_SUCCESS {
                     if lockdownd_client_new(raw, &client, "PhoneSnap") == LOCKDOWN_E_SUCCESS {
                         var value: UnsafeMutablePointer<CChar>?
                         if lockdownd_get_device_name(client, &value) == LOCKDOWN_E_SUCCESS, let value {
@@ -58,14 +64,19 @@ final class PhoneDeviceConnection: PhonePhotoConnection {
                     idevice_free(raw)
                 }
             }
-            return PhoneDevice(id: id, name: name, isUSB: usb)
+            if !usb, id == AutomaticWirelessSettings.phoneID {
+                name = AppDefaults.store.string(forKey: "PhoneSnapAutomaticWirelessPhoneName") ?? name
+            }
+            let endpoint = usb ? nil : Self.networkEndpoint(address: info.pointee.conn_data)
+            return PhoneDevice(id: id, name: name, isUSB: usb, directEndpoint: endpoint)
         }
     }
 
     init(phone: PhoneDevice) throws {
         self.phone = phone
-        // Exact transport only. Network capture must never fall back to USB.
-        let result = idevice_new_with_options(&device, phone.id, phone.isUSB ? IDEVICE_LOOKUP_USBMUX : IDEVICE_LOOKUP_NETWORK)
+        // Fail closed before any native lookup/session can use unverified Wi-Fi.
+        guard phone.isUSB else { throw PhoneConnectionError.secureWiFiRequired }
+        let result = idevice_new_with_options(&device, phone.id, IDEVICE_LOOKUP_USBMUX)
         guard result == IDEVICE_E_SUCCESS else { throw PhoneConnectionError.unavailable }
         do {
             var recordData: UnsafeMutablePointer<CChar>?
@@ -163,8 +174,33 @@ final class PhoneDeviceConnection: PhonePhotoConnection {
         return values
     }
 
-    private func check(_ result: lockdownd_error_t, _ operation: String) throws {
+    static func networkEndpoint(address: UnsafeRawPointer?) -> DirectPhoneEndpoint? {
+        guard let address else { return nil }
+        let family = address.assumingMemoryBound(to: sockaddr.self).pointee.sa_family
+        let length: Int
+        switch Int32(family) {
+        case AF_INET: length = MemoryLayout<sockaddr_in>.size
+        case AF_INET6: length = MemoryLayout<sockaddr_in6>.size
+        default: return nil
+        }
+        // Public idevice_info.conn_data is a sockaddr copied by the library.
+        // Copy it before the device list is freed, including IPv6 interface scope.
+        return DirectPhoneEndpoint(serviceName: "system device list", addresses: [Data(bytes: address, count: length)], txt: [:])
+    }
+
+    static func checkLockdown(_ result: lockdownd_error_t, _ operation: String) throws {
+        switch result {
+        case LOCKDOWN_E_INVALID_HOST_ID, LOCKDOWN_E_INVALID_CONF, LOCKDOWN_E_USER_DENIED_PAIRING,
+             LOCKDOWN_E_PAIRING_DIALOG_RESPONSE_PENDING, LOCKDOWN_E_PAIRING_FAILED, LOCKDOWN_E_MISSING_HOST_ID:
+            throw PhoneConnectionError.trustRequired
+        case LOCKDOWN_E_PASSWORD_PROTECTED, LOCKDOWN_E_SERVICE_PROHIBITED, LOCKDOWN_E_ESCROW_LOCKED:
+            throw PhoneConnectionError.locked
+        default: break
+        }
         guard result == LOCKDOWN_E_SUCCESS else { throw PhoneConnectionError.failed(operation, result.rawValue) }
+    }
+    private func check(_ result: lockdownd_error_t, _ operation: String) throws {
+        try Self.checkLockdown(result, operation)
     }
     private func checkAFC(_ result: afc_error_t, _ operation: String) throws {
         if [AFC_E_SERVICE_NOT_CONNECTED, AFC_E_MUX_ERROR, AFC_E_OP_TIMEOUT, AFC_E_NOT_ENOUGH_DATA].contains(result) {

@@ -8,7 +8,7 @@ final class AutomaticWirelessWatcher {
         var ready = false
     }
     var onStatus: ((Status) -> Void)?
-    var onImage: ((Data, String, Date?, String, @escaping () -> Bool) -> Bool)?
+    var onImage: ((Data, String, Date?, String, @escaping () -> Bool) throws -> Bool)?
 
     private let queue = DispatchQueue(label: "phonesnap.automatic-wireless", qos: .utility)
     private let lock = NSLock()
@@ -19,7 +19,7 @@ final class AutomaticWirelessWatcher {
     private let discovery = DirectPhoneDiscovery()
     private var scheduledPoll: DispatchWorkItem?
     private var connectionStartedAt: TimeInterval?
-    private let directOnly = ProcessInfo.processInfo.environment["PHONESNAP_DIRECT_WIFI_ONLY"] == "1"
+    private let bonjourOnly = ProcessInfo.processInfo.environment["PHONESNAP_DIRECT_WIFI_ONLY"] == "1"
     private var catalog = AutomaticCaptureCatalog()
     private var selectedID: String?
     private var lastStatus: Status?
@@ -106,8 +106,11 @@ final class AutomaticWirelessWatcher {
     func enableWiFi(for phone: PhoneDevice, completion: @escaping (Result<Void, Error>) -> Void) {
         queue.async {
             let result = Result {
-                if let endpoint = phone.directEndpoint {
+                if !phone.isUSB {
                     let pairing = try PhonePairingRecord(deviceID: phone.id)
+                    guard let endpoint = PhoneWiFiRoute.endpoint(phoneID: phone.id, devices: [phone], bonjour: self.discovery.endpoint(for: pairing)) else {
+                        throw PhoneConnectionError.unavailable
+                    }
                     _ = try DirectPhoneConnection(endpoint: endpoint, pairing: pairing, isCurrent: { true })
                 } else {
                     let connection = try PhoneDeviceConnection(phone: phone)
@@ -140,23 +143,14 @@ final class AutomaticWirelessWatcher {
                 delay = 3
             } else {
                 if connection == nil {
-                    let native = devices.first { $0.id == phoneID && !$0.isUSB }
-                    let pairing = try? PhonePairingRecord(deviceID: phoneID)
-                    let endpoint = pairing.flatMap { discovery.endpoint(for: $0) }
-                    if !directOnly, let native {
-                        publish(Status(text: "Connecting to your iPhone over Wi-Fi…"), token: token)
-                        do {
-                            let opened = try PhoneDeviceConnection(phone: native)
-                            try opened.openPhotos(); connection = opened
-                        } catch {
-                            guard endpoint != nil else { throw error }
-                        }
-                    }
-                    if connection == nil, let pairing, let endpoint {
+                    let pairing = try PhonePairingRecord(deviceID: phoneID)
+                    let endpoint = PhoneWiFiRoute.endpoint(phoneID: phoneID, devices: devices,
+                                                          bonjour: discovery.endpoint(for: pairing), bonjourOnly: bonjourOnly)
+                    if let endpoint {
                         publish(Status(text: "Connecting to your iPhone over Wi-Fi…"), token: token)
                         let opened = try DirectPhoneConnection(endpoint: endpoint, pairing: pairing, isCurrent: { [weak self] in self?.active(token) == true })
                         try opened.openPhotos(); connection = opened
-                        Log.info("Automatic Wi-Fi: connected directly to the selected trusted iPhone")
+                        Log.info("Automatic Wi-Fi: connected with verified phone identity")
                     }
                     if connection == nil {
                         publish(Status(text: "Looking for your iPhone on Wi-Fi. Unlock it to reconnect."), token: token)
@@ -178,13 +172,16 @@ final class AutomaticWirelessWatcher {
                     guard active(token) else { return }
                     do {
                         let started = Date()
-                        let (data, fallbackDate) = try connection.readImage(path, isCurrent: { self.active(token) })
+                        let image = try connection.readImage(path, rejectedRevision: catalog.suspendedRevision(for: path), isCurrent: { self.active(token) })
+                        let data = image.data
                         guard active(token) else { return }
                         guard CompleteImage.looksLikeScreenshot(data) else { catalog.completed(path); continue }
-                        let capturedAt = ScreenshotCaptureDate.fromImageData(data) ?? fallbackDate
-                        let accepted = onImage?(data, path, capturedAt, phoneID, { [weak self] in
-                            self?.active(token) == true
-                        }) ?? false
+                        let capturedAt = ScreenshotCaptureDate.fromImageData(data) ?? image.capturedAt
+                        let accepted = try image.deliver {
+                            try onImage?(data, path, capturedAt, phoneID, { [weak self] in
+                                self?.active(token) == true
+                            }) ?? false
+                        }
                         if accepted {
                             catalog.completed(path)
                             Log.info("Automatic Wi-Fi: screenshot delivered in \(String(format: "%.3f", Date().timeIntervalSince(started)))s")
@@ -193,6 +190,12 @@ final class AutomaticWirelessWatcher {
                         catalog.completed(path)
                     } catch PhoneConnectionError.incomplete {
                         catalog.backOff(path)
+                    } catch PhoneConnectionError.invalidImage(let revision) {
+                        catalog.rejectedImage(path, revision: revision)
+                    } catch PhoneConnectionError.unchangedRejectedImage {
+                        // Only metadata is read after repeated unchanged validation
+                        // failures. A changed revision is downloaded automatically.
+                        catalog.retry(path, after: Date().addingTimeInterval(60))
                     } catch PhoneConnectionError.transportLost(let code) {
                         catalog.backOff(path)
                         throw PhoneConnectionError.transportLost(code)

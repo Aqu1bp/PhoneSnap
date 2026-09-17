@@ -7,12 +7,14 @@ final class AutomaticWirelessSetupWindow: NSObject {
     private var window: NSWindow?
     private let picker = NSPopUpButton()
     private let status = NSTextField(wrappingLabelWithString: "")
+    private let statusDot = NSView()
     private let enable = NSButton(title: "Enable Wireless", target: nil, action: nil)
     private let refreshButton = NSButton(title: "Refresh Devices", target: nil, action: nil)
     private var phones: [PhoneDevice] = []
     private var busy = false
     private var setupGeneration = UUID()
-    private var currentStatus = "Connect once by cable, unlock your iPhone, and trust this Mac."
+    private var currentStatus = "Not set up"
+    private var currentReady = false
 
     init(watcher: AutomaticWirelessWatcher, onEnabled: @escaping (PhoneDevice) -> Void) {
         self.watcher = watcher
@@ -27,9 +29,10 @@ final class AutomaticWirelessSetupWindow: NSObject {
         refreshDevices()
     }
 
-    func updateStatus(_ text: String) {
+    func updateStatus(_ text: String, ready: Bool = false) {
         currentStatus = text
-        if !busy { status.stringValue = text }
+        currentReady = ready
+        if !busy { showStatus(text) }
     }
 
     func cancelPendingEnable() {
@@ -41,52 +44,87 @@ final class AutomaticWirelessSetupWindow: NSObject {
     }
 
     private func buildWindow() {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 540, height: 400),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 200),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "Automatic Wi-Fi Screenshots"
         window.isReleasedWhenClosed = false
-        window.center()
         self.window = window
-        let title = NSTextField(labelWithString: "Take a screenshot. It appears on your Mac.")
-        title.font = .systemFont(ofSize: 20, weight: .semibold)
-        let instructions = NSTextField(wrappingLabelWithString: "1. Plug your iPhone into this Mac once.\n2. Open Finder, select your iPhone, and approve Trust on both devices.\n3. Select the iPhone below and enable wireless access. Then unplug.")
-        instructions.font = .systemFont(ofSize: 14)
-        let note = NSTextField(wrappingLabelWithString: "Keep PhoneSnap running and both devices on the same Wi-Fi. Once the status says Ready, save screenshots normally. No Shortcut or iPhone app is needed.")
-        note.textColor = .secondaryLabelColor
-        note.font = .systemFont(ofSize: 12)
-        status.font = .systemFont(ofSize: 13, weight: .medium)
-        status.stringValue = currentStatus
-        status.setAccessibilityIdentifier("automatic-wireless-status")
+        let title = NSTextField(labelWithString: "Set up your iPhone")
+        title.font = .systemFont(ofSize: 15, weight: .semibold)
+        let instructions = NSTextField(wrappingLabelWithString: "Plug in once, tap Trust, then enable wireless and unplug.")
+        instructions.font = .systemFont(ofSize: 12)
+        instructions.textColor = .secondaryLabelColor
+        let header = NSStackView(views: [title, instructions])
+        header.orientation = .vertical
+        header.alignment = .leading
+        header.spacing = 4
+
         picker.setAccessibilityIdentifier("automatic-wireless-device")
-        enable.target = self; enable.action = #selector(enableWireless)
+        refreshButton.title = ""
+        refreshButton.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: "Refresh Devices")
+        refreshButton.imagePosition = .imageOnly
+        refreshButton.toolTip = "Refresh Devices"
         refreshButton.target = self; refreshButton.action = #selector(refreshDevices)
+        refreshButton.setContentHuggingPriority(.required, for: .horizontal)
+        let deviceRow = NSStackView(views: [picker, refreshButton])
+        deviceRow.orientation = .horizontal
+        deviceRow.spacing = 8
+
+        statusDot.wantsLayer = true
+        statusDot.layer?.cornerRadius = 4
+        status.font = .systemFont(ofSize: 12)
+        status.setAccessibilityIdentifier("automatic-wireless-status")
+        let statusRow = NSStackView(views: [statusDot, status])
+        statusRow.orientation = .horizontal
+        statusRow.alignment = .firstBaseline
+        statusRow.spacing = 8
+        showStatus(currentStatus)
+
+        enable.target = self; enable.action = #selector(enableWireless)
+        enable.keyEquivalent = "\r"
         let finder = NSButton(title: "Open Finder", target: self, action: #selector(openFinder))
-        let buttons = NSStackView(views: [enable, refreshButton, finder])
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let buttons = NSStackView(views: [finder, spacer, enable])
         buttons.orientation = .horizontal
-        buttons.spacing = 10
-        let stack = NSStackView(views: [title, instructions, picker, buttons, status, note])
+
+        let stack = NSStackView(views: [header, deviceRow, statusRow, buttons])
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 18
+        stack.spacing = 16
+        stack.setCustomSpacing(10, after: deviceRow)
+        stack.setCustomSpacing(20, after: statusRow)
         stack.translatesAutoresizingMaskIntoConstraints = false
         window.contentView?.addSubview(stack)
         if let root = window.contentView {
             NSLayoutConstraint.activate([
-                stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
-                stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
-                stack.topAnchor.constraint(equalTo: root.topAnchor, constant: 24),
-                instructions.widthAnchor.constraint(equalTo: stack.widthAnchor),
-                status.widthAnchor.constraint(equalTo: stack.widthAnchor),
-                note.widthAnchor.constraint(equalTo: stack.widthAnchor),
-                picker.widthAnchor.constraint(equalTo: stack.widthAnchor)
+                root.widthAnchor.constraint(equalToConstant: 420),
+                stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 20),
+                stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -20),
+                stack.topAnchor.constraint(equalTo: root.topAnchor, constant: 20),
+                stack.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -20),
+                statusDot.widthAnchor.constraint(equalToConstant: 8),
+                statusDot.heightAnchor.constraint(equalToConstant: 8),
+                header.widthAnchor.constraint(equalTo: stack.widthAnchor),
+                deviceRow.widthAnchor.constraint(equalTo: stack.widthAnchor),
+                statusRow.widthAnchor.constraint(equalTo: stack.widthAnchor),
+                buttons.widthAnchor.constraint(equalTo: stack.widthAnchor)
             ])
         }
+        window.layoutIfNeeded()
+        window.center()
+    }
+
+    private func showStatus(_ text: String, working: Bool = false, failed: Bool = false) {
+        status.stringValue = text
+        let color: NSColor = failed ? .systemRed : working ? .systemOrange : (currentReady ? .systemGreen : .tertiaryLabelColor)
+        statusDot.layer?.backgroundColor = color.cgColor
     }
 
     @objc private func refreshDevices() {
         guard !busy else { return }
         busy = true; enable.isEnabled = false; refreshButton.isEnabled = false
-        status.stringValue = "Looking for your iPhone…"
+        showStatus("Looking for your iPhone…", working: true)
         watcher.devices { [weak self] result in
             guard let self else { return }
             self.busy = false; self.refreshButton.isEnabled = true
@@ -96,34 +134,29 @@ final class AutomaticWirelessSetupWindow: NSObject {
                 var unique: [String: PhoneDevice] = [:]
                 for device in devices where unique[device.id] == nil || device.isUSB { unique[device.id] = device }
                 self.phones = unique.values.sorted { ($0.name, $0.id) < ($1.name, $1.id) }
-                self.picker.removeAllItems()
-                for phone in self.phones { self.picker.addItem(withTitle: "\(phone.name) — \(phone.isUSB ? "Cable" : "Wi-Fi")") }
-                if let selected = self.phones.firstIndex(where: { $0.id == AutomaticWirelessSettings.phoneID }) {
-                    self.picker.selectItem(at: selected)
-                }
+                PhoneDevicePicker.populate(self.picker, phones: self.phones, selectedID: AutomaticWirelessSettings.phoneID)
                 self.enable.isEnabled = !self.phones.isEmpty
-                self.status.stringValue = self.phones.isEmpty ? "No iPhone found. Connect by cable, unlock it, and approve Trust in Finder." : self.currentStatus
-            case .failure(let error): self.status.stringValue = error.localizedDescription
+                self.showStatus(self.phones.isEmpty ? "No iPhone found — plug it in and unlock it" : self.currentStatus)
+            case .failure(let error): self.showStatus(error.localizedDescription, failed: true)
             }
         }
     }
 
     @objc private func enableWireless() {
-        guard !busy, phones.indices.contains(picker.indexOfSelectedItem) else { return }
-        let phone = phones[picker.indexOfSelectedItem]
+        guard !busy, let phone = PhoneDevicePicker.selectedPhone(in: picker, phones: phones) else { return }
         let token = UUID()
         setupGeneration = token
         busy = true; enable.isEnabled = false; refreshButton.isEnabled = false; picker.isEnabled = false
-        status.stringValue = "Enabling wireless access for \(phone.name)…"
+        showStatus("Enabling wireless for \(phone.name)…", working: true)
         watcher.enableWiFi(for: phone) { [weak self] result in
             guard let self, self.setupGeneration == token else { return }
             self.busy = false; self.enable.isEnabled = true; self.refreshButton.isEnabled = true; self.picker.isEnabled = true
             switch result {
             case .success:
-                self.currentStatus = phone.isUSB ? "Wireless access enabled. Unplug your iPhone and wait for Ready." : "Wireless access enabled. Connecting…"
-                self.status.stringValue = self.currentStatus
+                self.currentStatus = phone.isUSB ? "Enabled — unplug your iPhone" : "Enabled — connecting…"
+                self.showStatus(self.currentStatus)
                 self.onEnabled(phone)
-            case .failure(let error): self.status.stringValue = error.localizedDescription
+            case .failure(let error): self.showStatus(error.localizedDescription, failed: true)
             }
         }
     }

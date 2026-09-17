@@ -58,11 +58,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         automaticWatcher.onStatus = { [weak self] status in
             self?.automaticState = status
-            self?.automaticSetup.updateStatus(status.text)
+            self?.automaticSetup.updateStatus(status.text, ready: status.ready)
             self?.refreshConnectionStatus()
         }
         automaticWatcher.onImage = { [weak self] data, name, capturedAt, phoneID, isCurrent in
-            self?.deliverAutomatic(data: data, name: name, capturedAt: capturedAt, deviceID: phoneID, wireless: true, isCurrent: isCurrent) ?? false
+            try self?.deliverAutomatic(data: data, name: name, capturedAt: capturedAt, deviceID: phoneID, wireless: true, isCurrent: isCurrent) ?? false
         }
         settingsWindow = SettingsWindowController(
             wirelessEnabled: { [weak self] in self?.wirelessEnabled ?? false },
@@ -112,7 +112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // new camera-roll items created after app startup.
         cameraBridge = CameraBridge { [weak self] data, name, capturedAt, deviceID in
             guard let self else { return }
-            _ = self.deliverAutomatic(data: data, name: name, capturedAt: capturedAt, deviceID: deviceID, wireless: false, isCurrent: { true })
+            _ = try? self.deliverAutomatic(data: data, name: name, capturedAt: capturedAt, deviceID: deviceID, wireless: false, isCurrent: { true })
         }
         cameraBridge.onDevicesChanged = { [weak self] names in
             self?.refreshConnectionStatus()
@@ -164,16 +164,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             automaticWatcher.resetCatalog()
             automaticState = .init(text: "Off")
         }
-        automaticSetup.updateStatus(automaticState.text)
+        automaticSetup.updateStatus(automaticState.text, ready: automaticState.ready)
         refreshConnectionStatus()
     }
 
     /// Save once across USB/Wi-Fi, then present on main. Shortcut replays keep their own semantics.
-    private func deliverAutomatic(data: Data, name: String, capturedAt: Date?, deviceID: String?, wireless: Bool, isCurrent: @escaping () -> Bool) -> Bool {
+    private func deliverAutomatic(data: Data, name: String, capturedAt: Date?, deviceID: String?, wireless: Bool, isCurrent: @escaping () -> Bool) throws -> Bool {
         guard isCurrent() else { return false }
         Log.info("Capture identity via \(wireless ? "Wi-Fi" : "USB"): \(AutomaticCaptureDelivery.fingerprint(deviceID))")
         var savedURL: URL?
-        let accepted: Bool = captureQueue.sync {
+        let accepted: Bool = try captureQueue.sync {
             let key = AutomaticCaptureDelivery.key(deviceID: deviceID, name: name, capturedAt: capturedAt, data: data)
             if captureDelivery.contains(key) { return true }
             do {
@@ -182,7 +182,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 captureDelivery.record(key)
                 savedURL = url
                 return true
-            } catch { Log.error("Automatic screenshot save failed: \(error)"); return false }
+            } catch { Log.error("Automatic screenshot save failed: \(error)"); throw error }
         }
         if let url = savedURL {
             DispatchQueue.main.async { [weak self] in

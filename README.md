@@ -84,7 +84,7 @@ Behind the scenes, PhoneSnap uses Apple's ImageCaptureCore framework. macOS expo
 
 ### Automatic Wi-Fi Screenshots
 
-This preview has passed capture tests with an already paired iPhone and after a controlled unpair/re-pair test. It now discovers and connects directly to the trusted phone when Apple's device list is delayed; a forced direct-route test reached Ready in about 4.6 seconds and received both screenshots. Consistently quick first-time onboarding on a second Mac is not yet established; see the [test results](docs/AUTOMATIC_WIRELESS.md).
+This preview has passed capture tests with an already paired iPhone and after a controlled unpair/re-pair test. It uses verified TLS for every Wi-Fi connection, using either Apple's device list or Bonjour for discovery; phones without encrypted photo access require a cable. In earlier testing, a forced direct-route test reached Ready in about 4.6 seconds and received both screenshots. Consistently quick first-time onboarding on a second Mac is not yet established; see the [test results](docs/AUTOMATIC_WIRELESS.md).
 
 1. Choose **Set Up Automatic Wi-Fi…** in the PhoneSnap menu.
 2. For a new phone, plug it in, unlock it, select it in Finder, and approve **Trust** on both devices.

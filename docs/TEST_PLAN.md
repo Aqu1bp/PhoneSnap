@@ -108,9 +108,9 @@ First run may require iOS Photos and local-network permission. Existing installe
 ## Automatic Wi-Fi preview
 
 - Fresh preferences: automatic capture off; legacy receiver remains independently off.
-- Native read-only hardware test: explicitly Network, no USB, existing pairing only.
-- Direct fallback: launch the preview executable with `PHONESNAP_DIRECT_WIFI_ONLY=1`, no cable, and existing pairing. Confirm logs identify direct photo access, record time to actual Ready, and take two screenshots. Restart with the same preferences, confirm the old catalog is skipped and a new capture arrives. Remove the override afterward. No unpairing or system service restart is needed.
-- Direct transport automated checks: fragmented reads with and without TLS, wrong certificate rejection, early stream closure, stalled-operation cancellation, aggregate plist deadline, AFC frame bounds/sequence, and modern advertisement identity without legacy downgrade.
+- Verified read-only hardware test: system Network address, no USB, existing pairing only; require pinned lockdown/AFC TLS and selected device identity.
+- Bonjour-only discovery: launch the preview executable with `PHONESNAP_DIRECT_WIFI_ONLY=1`, no cable, and existing pairing. Confirm logs identify direct photo access, record time to actual Ready, and take two screenshots. Restart with the same preferences, confirm the old catalog is skipped and a new capture arrives. Remove the override afterward. No unpairing or system service restart is needed.
+- Direct transport automated checks: full simulated lockdown/AFC handshake with both peers pinned, wrong device ID, plaintext session/service rejection, wrong AFC certificate, fragmented reads with and without TLS, wrong certificate rejection, early stream closure, stalled-operation cancellation, aggregate plist deadline, AFC frame bounds/sequence, and modern advertisement identity without legacy downgrade.
 - One-time setup: selected USB phone, existing Trust, set/read back wireless enablement, unplug and wait for Ready.
 - Fresh pairing: use a phone/Mac without prior pairing or an explicitly approved scoped reset, plus empty app preferences. Verify Enable rejects missing Trust; complete Finder/phone Trust; verify USB Enable survives its full cleanup and reads back enabled. Require an unplugged authenticated app connection and two captures before marking setup passed. A changed phone flag or direct diagnostic connection alone is insufficient. Record setup delay and recovery actions separately; see `AUTOMATIC_WIRELESS.md`.
 - Live: two or more screenshots arrive as PNG files, clipboard updates, recent panel latest first.
@@ -118,5 +118,7 @@ First run may require iOS Photos and local-network permission. Existing installe
 - Lock/unlock and fresh connection: no baseline replay; new pending files survive.
 - USB handoff: confirm actual device identity fingerprints match between transports and no duplicate PNG is saved.
 - Disable during a read: no late presentation; re-enable begins a new baseline.
-- Corrupt/incomplete images: rejected and deferred; a single unreadable path must not starve later captures.
+- Corrupt images: unchanged size/modification time receives at most three downloads, including a structurally valid HEIC with undecodable pixels; later captures stay due. A repaired revision resumes delivery. Changing/incomplete files and transient disk failures remain retryable.
+- Duplicate device names: every device has its own row, disambiguated label, and ID-bound selection after refresh/reordering.
+- Native setup errors: missing/denied/pending Trust gives Trust guidance; password-protected or prohibited photo access gives unlock guidance.
 - Packaging: launch an app copy outside the checkout, verify signatures and no Homebrew dylib paths, confirm Info.plist minimum >= every bundled binary’s minimum.

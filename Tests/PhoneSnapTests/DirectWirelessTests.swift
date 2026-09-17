@@ -58,6 +58,56 @@ final class DirectWirelessTests: XCTestCase {
         }
     }
 
+    func testWiFiAuthenticatesBothSessionAndPhotoService() throws {
+        try server("lockdown") { port, directory in
+            let endpoint = DirectPhoneEndpoint(serviceName: "local fixture", addresses: [address()], txt: [:])
+            let connection = try DirectPhoneConnection(endpoint: endpoint, pairing: pairing(directory), lockdownPort: port, isCurrent: { true })
+            try connection.openPhotos()
+            XCTAssertTrue(connection.photosUseTLS)
+            XCTAssertEqual(try connection.list("/DCIM"), ["100APPLE"])
+        }
+    }
+
+    func testWiFiRejectsWrongSessionCertificateOrDeviceIdentity() throws {
+        for mode in ["lockdown", "lockdown-wrong-id"] {
+            try server(mode) { port, directory in
+                let endpoint = DirectPhoneEndpoint(serviceName: "local fixture", addresses: [address()], txt: [:])
+                XCTAssertThrowsError(try DirectPhoneConnection(endpoint: endpoint,
+                    pairing: pairing(directory, wrongPin: mode == "lockdown"), lockdownPort: port, isCurrent: { true })) { error in
+                    if mode == "lockdown-wrong-id" {
+                        guard case PhoneConnectionError.trustRequired = error else { return XCTFail("Unexpected error: \(error)") }
+                    } else {
+                        guard case PhoneConnectionError.failed("Verifying the trusted iPhone", _) = error else { return XCTFail("Unexpected error: \(error)") }
+                    }
+                }
+            }
+        }
+    }
+
+    func testWiFiRejectsPlaintextSessionAndUnauthenticatedPhotoService() throws {
+        for mode in ["lockdown-plaintext-session", "lockdown-plaintext-afc", "lockdown-wrong-afc-cert"] {
+            try server(mode) { port, directory in
+                let endpoint = DirectPhoneEndpoint(serviceName: "local fixture", addresses: [address()], txt: [:])
+                if mode == "lockdown-plaintext-session" {
+                    XCTAssertThrowsError(try DirectPhoneConnection(endpoint: endpoint, pairing: pairing(directory), lockdownPort: port, isCurrent: { true })) {
+                        guard case PhoneConnectionError.secureWiFiRequired = $0 else { return XCTFail("Unexpected error: \($0)") }
+                    }
+                } else {
+                    let connection = try DirectPhoneConnection(endpoint: endpoint, pairing: pairing(directory), lockdownPort: port, isCurrent: { true })
+                    XCTAssertThrowsError(try connection.openPhotos()) { error in
+                        if mode == "lockdown-plaintext-afc" {
+                            guard case PhoneConnectionError.secureWiFiRequired = error else { return XCTFail("Unexpected error: \(error)") }
+                        } else {
+                            guard case PhoneConnectionError.failed("Verifying the trusted iPhone", _) = error else { return XCTFail("Unexpected error: \(error)") }
+                        }
+                    }
+                    XCTAssertFalse(connection.photosUseTLS)
+                    XCTAssertThrowsError(try connection.list("/DCIM"))
+                }
+            }
+        }
+    }
+
     func testTruncatedReadRejected() throws {
         try server("truncated") { port, _ in
             let socket = try DirectPhoneSocket(address: address(), port: port, isCurrent: { true })

@@ -48,7 +48,7 @@ final class DirectPhoneConnection: PhonePhotoConnection {
     private var sequence: UInt64 = 0
     private(set) var photosUseTLS = false
 
-    init(endpoint: DirectPhoneEndpoint, pairing: PhonePairingRecord, isCurrent: @escaping () -> Bool) throws {
+    init(endpoint: DirectPhoneEndpoint, pairing: PhonePairingRecord, lockdownPort: UInt16 = 62078, isCurrent: @escaping () -> Bool) throws {
         self.pairing = pairing; self.isCurrent = isCurrent
         var selected: (Data, DirectPhoneSocket)?
         var lastError: Error = PhoneConnectionError.unavailable
@@ -58,10 +58,10 @@ final class DirectPhoneConnection: PhonePhotoConnection {
             guard ProcessInfo.processInfo.systemUptime < deadline else { break }
             do {
                 // The advertised port can be RemotePairing; classic lockdown remains 62078.
-                let socket = try DirectPhoneSocket(address: candidate, port: 62078, deadline: deadline, isCurrent: isCurrent)
+                let socket = try DirectPhoneSocket(address: candidate, port: lockdownPort, deadline: deadline, isCurrent: isCurrent)
                 let session = try socket.plist(["Request": "StartSession", "Label": "PhoneSnap",
                                                "HostID": pairing.hostID, "SystemBUID": pairing.systemBUID], deadline: deadline)
-                guard session["EnableSessionSSL"] as? Bool == true else { throw PhoneConnectionError.trustRequired }
+                guard session["EnableSessionSSL"] as? Bool == true else { throw PhoneConnectionError.secureWiFiRequired }
                 try socket.startTLS(pairing, deadline: deadline)
                 let identity = try socket.plist(["Request": "GetValue", "Key": "UniqueDeviceID", "Label": "PhoneSnap"], deadline: deadline)
                 guard identity["Value"] as? String == pairing.deviceID else { throw PhoneConnectionError.trustRequired }
@@ -79,9 +79,12 @@ final class DirectPhoneConnection: PhonePhotoConnection {
         guard let rawPort = reply["Port"] as? Int, let port = UInt16(exactly: rawPort), port > 0 else {
             throw PhoneConnectionError.transportLost(-1)
         }
+        // Authenticating lockdown is insufficient if photo bytes use a separate,
+        // unauthenticated socket. Reject a service that cannot verify its peer.
+        guard reply["EnableServiceSSL"] as? Bool == true else { throw PhoneConnectionError.secureWiFiRequired }
         let socket = try DirectPhoneSocket(address: address, port: port, deadline: deadline, isCurrent: isCurrent)
-        photosUseTLS = reply["EnableServiceSSL"] as? Bool == true
-        if photosUseTLS { try socket.startTLS(pairing, deadline: deadline) }
+        try socket.startTLS(pairing, deadline: deadline)
+        photosUseTLS = true
         afc = socket; self.lockdown = nil
         Log.info("Automatic Wi-Fi: direct photo connection opened; service TLS \(photosUseTLS ? "enabled" : "not requested by iPhone")")
     }

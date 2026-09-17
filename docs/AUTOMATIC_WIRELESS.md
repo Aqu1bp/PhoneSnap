@@ -2,7 +2,7 @@
 
 Use **Set Up Automatic Wi-Fi…** from the menu. A new phone needs a cable once, unlocked, with Trust approved in Finder and on the phone. The setup screen selects one device and enables wireless access. An already discoverable paired device can be selected over Wi-Fi. Keep both devices on the same LAN, unplug, wait for Ready, and save screenshots normally.
 
-Only the explicit Enable Wireless action writes the phone’s `com.apple.mobile.wireless_lockdown/EnableWifiConnections` preference through an existing trusted USB session. The app never initiates pairing, resets trust, or changes photo files. Wi-Fi capture reads AFC through Apple's Network connection, with a direct Bonjour/TCP fallback when that connection is absent or fails to open. Both routes authenticate the selected phone using its existing pairing. Turning the watcher off leaves the phone’s Apple Wi-Fi setting and trust intact.
+Only the explicit Enable Wireless action writes the phone’s `com.apple.mobile.wireless_lockdown/EnableWifiConnections` preference through an existing trusted USB session. The app never initiates pairing, resets trust, or changes photo files. Apple's device list and Bonjour supply candidate addresses. All Wi-Fi capture uses a connection that pins the paired phone's TLS identity on both lockdown and AFC; the native library is used only over USB. Phones without AFC service TLS receive cable guidance. Turning the watcher off leaves the phone’s Apple Wi-Fi setting and trust intact.
 
 First-run automatic capture and the legacy upload receiver both default off independently. Enabling automatic capture does not start the HTTP upload receiver. Its controls remain under **Shortcut & Developer Uploads**.
 
@@ -10,7 +10,7 @@ First-run automatic capture and the legacy upload receiver both default off inde
 
 - Initial catalog entries are skipped before Ready. Capture after Ready; startup scanning is not historical import.
 - New pending paths remain retryable across temporary disconnects during an enabled session.
-- Individual failures back off while other captures continue; transport failures reconnect.
+- Transient failures back off while other captures continue; transport failures reconnect. After three validation or PNG-normalization failures for an unchanged file, only its size/modification time is checked every minute. A changed file is downloaded again; temporary disk failures remain retryable.
 - A connected cable takes precedence for the same phone. USB and Wi-Fi share a capture identity to avoid saving the same capture twice.
 - Capture dates determine panel order. DCIM folder/filename sequence breaks ties for captures in the same EXIF second, independently of receive order.
 - Complete PNG/HEIF structure, stable remote size/modification time, and image decoding are required before presentation. Downloads are capped at 32 MB.
@@ -24,15 +24,17 @@ Install development dependencies with `brew install pkgconf libimobiledevice ope
 
 The Swift deployment target is macOS 13. The final bundle uses the highest minimum version among its native libraries. Homebrew bottles built for Tahoe require macOS 26, so this local preview is 26+. Build and test dependency binaries on an older OS before distributing to that OS; do not lower the plist value to hide an incompatible library.
 
-An explicit, read-only native hardware check is available:
+An explicit, read-only verified Wi-Fi hardware check is available:
 
 ```sh
-PHONESNAP_LIVE_DEVICE_TEST=1 swift test --filter AutomaticWirelessTests/testNativeWiFiConnectionWhenExplicitlyRequested
+PHONESNAP_LIVE_DEVICE_TEST=1 swift test --filter AutomaticWirelessTests/testVerifiedWiFiConnectionWhenExplicitlyRequested
 ```
 
 It requires a visible, paired iPhone and no cable; it lists image paths without downloading existing images or writing to the device. Ordinary test runs skip it.
 
 ## Preview test results — 17 September 2026
+
+These results describe the earlier builds in sequence. The adversarial-review fixes below replace native Wi-Fi sessions with verified TLS for all Wi-Fi connections.
 
 - The earlier standalone prototype received 5/5 deliberate screenshots on iOS 26.5. Native existing-trust Network connection and DCIM listing passed separately.
 - The bundled native app was copied outside the checkout and launched with a separate preview bundle identifier. All six loaded native libraries were verified to come from its own Frameworks folder. Ad-hoc signatures and transitive relocation checks passed.
@@ -61,9 +63,9 @@ At that point the app relied on Apple exposing the phone through usbmux; the dir
 
 The watcher also browses the iPhone's `_apple-mobdev2._tcp` advertisement. It matches the selected pairing's modern authentication tag, or the saved Wi-Fi MAC for older advertisements. Discovery only selects a candidate: the connection must then authenticate with the existing host certificate, pin the device certificate's public key, and verify the device identifier inside TLS before opening photo access. Host credentials stay in memory; they are not copied into PhoneSnap preferences, files, or logs.
 
-The direct route uses lockdown on port 62078 and the AFC port returned by the authenticated session. It enables pinned TLS on AFC when the iPhone requests service TLS. Requests are read-only and share the native route's baseline, pending-file retry, size, image-validation, and capture-identity checks. Socket operations use bounded deadlines and respond to cancellation. A cable still takes precedence. Ready requires a successful photo catalog scan; a saved pairing alone does not mean the phone is reachable.
+The direct route uses lockdown on port 62078 and the AFC port returned by the authenticated session. It now requires pinned TLS on AFC as well as lockdown; plaintext service access is rejected. Requests are read-only and retain baseline, pending-file retry, size, image-validation, and capture-identity checks. Socket operations use bounded deadlines and respond to cancellation. A cable still takes precedence. Ready requires a successful photo catalog scan; a saved pairing alone does not mean the phone is reachable.
 
-For a deliberate direct-route hardware test, launch the executable inside the preview bundle with `PHONESNAP_DIRECT_WIFI_ONLY=1`. This developer override skips Apple's Network route but continues to respect USB presence. Remove it for normal use. Do not remove pairing or restart system services to test this fallback.
+For a deliberate Bonjour-only discovery test, launch the executable inside the preview bundle with `PHONESNAP_DIRECT_WIFI_ONLY=1`. This developer override skips addresses from Apple's device list but continues to respect USB presence. All Wi-Fi connections use verified TLS with or without this override. Remove it for normal use. Do not remove pairing or restart system services for this test.
 
 ### Direct-route test — 17 September 2026
 
@@ -79,3 +81,17 @@ For a deliberate direct-route hardware test, launch the executable inside the pr
 The branch includes the preserved capture-ordering change and main's shared thumbnail display setting, drag fixes, in-memory test preferences, development version suffix, and bundle signing. The panel is now named **Recent Screenshots**; earlier hardware results above used its previous **Recent from iPhone** title. USB, automatic Wi-Fi, and Shortcut uploads all follow the display preference, with capture dates and source-sequence tie breaks retained in strip mode.
 
 After integration, 43 automated tests passed and one opt-in hardware test was skipped. The tests include chronological panel layout, replay view reuse, removal from the sorted backing model, and upstream drag/settings checks. Legacy HTTP smoke checks and native bundle relocation/signature checks passed. Independent merged-code review found no blocking regressions. Phone transport code was unchanged by this integration; the physical capture results above preceded it.
+
+
+## Adversarial-review fixes — 17 September 2026
+
+The review found four issues, now corrected:
+
+- Native libimobiledevice Wi-Fi sessions did not verify the peer certificate. Native sessions and name lookup are now USB-only. System Network addresses and matched Bonjour advertisements both feed the verified transport; lockdown and AFC each require the saved device public key, with the selected device ID checked inside the lockdown TLS session. No unverified network or plaintext-photo fallback remains.
+- Duplicate phone names could collapse picker rows and select the wrong backing-array entry. Each menu item now carries the device ID, with distinct suffixes for duplicate labels; selection survives backing-array reordering.
+- An unchanged malformed image could be downloaded forever. Container and PNG-normalization failures now share a three-attempt budget for that size/modification time, followed by metadata-only checks every minute. Modified files resume downloads. Temporary disk errors remain retryable, and later captures are not blocked.
+- Native Trust/locked-device errors previously became generic numeric failures. They now provide the corresponding Trust or unlock instructions.
+
+Verification: 54 automated tests passed, with one opt-in hardware test skipped. Eleven new regressions cover full simulated lockdown/AFC identity checks, plaintext and wrong-peer rejection, duplicate-name selection, actionable errors, bounded malformed-file retries, corrupt HEIC pixels, and recovery after an image repair or real disk-write failure. The simulated credentials are generated locally for tests; no phone pairing keys are used. Exact security-error assertions passed in a subsequent focused rerun. Release bundling verified six relocated libraries and the ad-hoc signature; legacy HTTP smoke checks passed. Independent review found no remaining product blocker, and its remaining test-strength suggestion was fixed and verified. The original checkout's 23 baseline source/binary checksums remain unchanged.
+
+The earlier physical results used the previous builds. A fresh capture on the hardened preview has not yet been repeated; the latest changes have automated coverage and package verification.

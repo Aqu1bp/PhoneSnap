@@ -91,16 +91,18 @@ final class AutomaticWirelessTests: XCTestCase {
         }
     }
 
-    func testNativeWiFiConnectionWhenExplicitlyRequested() throws {
+    func testVerifiedWiFiConnectionWhenExplicitlyRequested() throws {
         guard ProcessInfo.processInfo.environment["PHONESNAP_LIVE_DEVICE_TEST"] == "1" else {
             throw XCTSkip("Opt-in physical device check; not run in CI")
         }
         let devices = try PhoneDeviceConnection.devices()
         XCTAssertFalse(devices.contains { $0.isUSB }, "Unplug the phone to prove network-only transport")
         let phone = try XCTUnwrap(devices.first { !$0.isUSB })
-        let connection = try PhoneDeviceConnection(phone: phone)
+        let endpoint = try XCTUnwrap(phone.directEndpoint)
+        let pairing = try PhonePairingRecord(deviceID: phone.id)
+        let connection = try DirectPhoneConnection(endpoint: endpoint, pairing: pairing, isCurrent: { true })
         try connection.openPhotos()
         let paths = try connection.imagePaths()
-        print("Native Wi-Fi: existing trust accepted; \(paths.count) image paths; no downloads or device writes")
+        print("Verified Wi-Fi: pinned identity accepted; \(paths.count) image paths; no downloads or device writes")
     }
 }
