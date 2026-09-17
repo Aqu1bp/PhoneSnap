@@ -1,0 +1,4 @@
+module CLibIMobileDevice [system] {
+    header "shim.h"
+    export *
+}

@@ -5,10 +5,15 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+if ! command -v pkg-config >/dev/null || ! pkg-config --exists libimobiledevice-1.0 libusbmuxd-2.0 openssl; then
+  echo "Install build dependencies first: brew install pkgconf libimobiledevice openssl@3"
+  exit 1
+fi
 echo "→ swift build -c release"
 swift build -c release
 
-APP="PhoneSnap.app"
+APP="${PHONESNAP_APP_NAME:-PhoneSnap}.app"
+BUNDLE_ID="${PHONESNAP_BUNDLE_ID:-dev.phonesnap.PhoneSnap}"
 BIN_SRC=".build/release/PhoneSnap"
 if [ ! -f "$BIN_SRC" ]; then
   echo "ERROR: $BIN_SRC not found — release build failed?"
@@ -67,7 +72,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleDisplayName</key>
   <string>PhoneSnap</string>
   <key>CFBundleIdentifier</key>
-  <string>dev.phonesnap.PhoneSnap</string>
+  <string>$BUNDLE_ID</string>
   <key>CFBundleVersion</key>
   <string>1</string>
   <key>CFBundleShortVersionString</key>
@@ -82,23 +87,19 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <string>13.0</string>
   <key>LSUIElement</key>
   <true/>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>PhoneSnap connects to your trusted iPhone on Wi-Fi to receive new screenshots.</string>
+  <key>NSBonjourServices</key>
+  <array><string>_apple-mobdev2._tcp</string></array>
   <key>NSHumanReadableCopyright</key>
   <string>Local-only utility, no telemetry.</string>
 </dict>
 </plist>
 PLIST
 
-# Sign the assembled bundle, not just the binary. `swift build` leaves a
-# linker-signed Mach-O, which does not seal Info.plist or Resources — so the
-# bundle's signature is invalid, and macOS reports a downloaded copy as
-# "damaged and can't be opened" rather than merely unidentified.
-#
-# Ad-hoc (`-`) is the best we can do without a Developer ID. It does not make
-# the app notarized: a download still needs right-click → Open once. It does
-# mean Gatekeeper reports that honestly instead of sending users to the Trash.
-echo "→ codesign (ad-hoc)"
-codesign --force --sign - --identifier dev.phonesnap.PhoneSnap "$APP"
-codesign --verify --deep --strict "$APP"
+# Relocate libraries before sealing the complete bundle, including Info.plist
+# and Resources. The helper signs libraries and the app, then verifies both.
+python3 scripts/bundle-native-libs.py "$APP"
 
 echo "→ built $APP"
 echo "  binary: $(du -h "$APP/Contents/MacOS/PhoneSnap" | cut -f1)"

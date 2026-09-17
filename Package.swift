@@ -10,9 +10,15 @@ let package = Package(
         .executable(name: "UsbmuxdProbe", targets: ["UsbmuxdProbe"])
     ],
     targets: [
+        .systemLibrary(name: "CLibIMobileDevice", pkgConfig: "libimobiledevice-1.0", providers: [.brew(["libimobiledevice"])]),
+        .systemLibrary(name: "CUsbmuxd", pkgConfig: "libusbmuxd-2.0", providers: [.brew(["libusbmuxd"])]),
+        .systemLibrary(name: "COpenSSL", pkgConfig: "openssl", providers: [.brew(["openssl@3"])]),
+        .target(name: "PhoneTCP", dependencies: ["COpenSSL"]),
         .executableTarget(
             name: "PhoneSnap",
-            path: "Sources/PhoneSnap"
+            dependencies: ["CLibIMobileDevice", "CUsbmuxd", "PhoneTCP"],
+            path: "Sources/PhoneSnap",
+            linkerSettings: [.linkedLibrary("z")]
         ),
         .executableTarget(
             name: "ICProbe",
@@ -25,7 +31,8 @@ let package = Package(
         .testTarget(
             name: "PhoneSnapTests",
             dependencies: ["PhoneSnap"],
-            path: "Tests/PhoneSnapTests"
+            path: "Tests/PhoneSnapTests",
+            resources: [.copy("Fixtures/direct_phone_server.py")]
         )
     ]
 )

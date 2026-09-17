@@ -18,7 +18,7 @@ import ImageCaptureCore
 ///   screenshots (PNG, or HEIC where the file name pattern + screen-shape
 ///   resolution match), download it, and hand it to the thumbnail pipeline.
 final class CameraBridge: NSObject, ICCameraDeviceDownloadDelegate {
-    typealias NewImageHandler = (Data, String) -> Void
+    typealias NewImageHandler = (Data, String, Date?, String?) -> Void
 
     /// Called on device attach/detach so the UI can show live connection state.
     var onDevicesChanged: (([String]) -> Void)?
@@ -119,7 +119,7 @@ final class CameraBridge: NSObject, ICCameraDeviceDownloadDelegate {
                 let data = try Data(contentsOf: url)
                 Log.info("CameraBridge: downloaded \(data.count) bytes for \(file.name ?? "?")")
                 try? FileManager.default.removeItem(at: url)
-                self.onNewImage(data, file.name ?? "screenshot.png")
+                self.onNewImage(data, file.name ?? "screenshot.png", ScreenshotCaptureDate.fromImageData(data) ?? file.creationDate, file.device?.serialNumberString)
             } catch {
                 Log.error("CameraBridge: read download failed: \(error)")
             }

@@ -10,7 +10,7 @@ swift build -c release
 
 ## Wired End-to-End
 
-1. Launch the app.
+1. Launch the app. In Settings, select latest-only thumbnails for the controls below, then repeat capture in the default recent-strip mode.
 2. Plug in an iPhone.
 3. Unlock the iPhone and accept **Trust This Computer** if prompted.
 4. Take a screenshot.
@@ -77,8 +77,8 @@ Expected:
 - Shortcut download returns `200 OK` with `PhoneSnap.shortcut`, or a clear signing error if `/usr/bin/shortcuts sign` fails
 - upload returns `{"ok":true,...}`
 - a PNG is saved to `PHONESNAP_DIR`
-- wireless uploads do not show the wired bottom-right thumbnail
-- after the debounce window, the Mac opens the **Recent from iPhone** panel for the received batch
+- fresh preferences use the recent strip; selecting latest-only in Settings applies to USB, automatic Wi-Fi, and Shortcut uploads
+- the Mac opens **Recent Screenshots** immediately and updates it as uploads arrive
 - missing/incorrect token returns `401 Unauthorized`
 
 ## Wireless iPhone End-to-End
@@ -89,7 +89,10 @@ Expected:
 4. Open/add `PhoneSnap.shortcut`.
 5. Take one or more screenshots.
 6. Run the PhoneSnap Shortcut.
-7. Confirm the Mac opens **Recent from iPhone**, each thumbnail drags into a file drop target, the files are saved, and the pasteboard contains the latest uploaded image.
+7. Confirm the Mac opens **Recent Screenshots**, each thumbnail drags into a file drop target, the files are saved, and the pasteboard contains the latest uploaded image.
+8. Confirm screenshots are ordered by capture time, newest on the left and oldest on the right, including screenshots taken within the same second.
+9. Re-run the Shortcut with the panel open, then after closing it. Confirm repeated screenshots keep their positions, even if the run is interrupted.
+10. Take another screenshot and repeat. Confirm it appears ahead of older screenshots. Re-add an older Shortcut before checking chronology if its uploads lack embedded capture dates.
 
 First run may require iOS Photos and local-network permission. Existing installed Shortcuts should be reinstalled to get batch behavior.
 
@@ -100,3 +103,22 @@ First run may require iOS Photos and local-network permission. Existing installe
 3. Confirm `WFGetLatestPhotoCount` is `10` by default, or the value from `PHONESNAP_BATCH_COUNT` when that environment variable is set.
 4. Confirm the workflow contains `is.workflow.actions.repeat.each` around the upload action.
 5. Confirm the upload action still uses `POST`, the original upload URL, and `Authorization: Bearer <token>`.
+6. Confirm `X-PhoneSnap-Captured-At` uses the Repeat Item's **Date Taken**, formatted as `yyyy-MM-dd'T'HH:mm:ss.SSSXXXXX` (including milliseconds and timezone).
+
+## Automatic Wi-Fi preview
+
+- Fresh preferences: automatic capture off; legacy receiver remains independently off.
+- Verified read-only hardware test: system Network address, no USB, existing pairing only; require pinned lockdown/AFC TLS and selected device identity.
+- Bonjour-only discovery: launch the preview executable with `PHONESNAP_DIRECT_WIFI_ONLY=1`, no cable, and existing pairing. Confirm logs identify direct photo access, record time to actual Ready, and take two screenshots. Restart with the same preferences, confirm the old catalog is skipped and a new capture arrives. Remove the override afterward. No unpairing or system service restart is needed.
+- Direct transport automated checks: full simulated lockdown/AFC handshake with both peers pinned, wrong device ID, plaintext session/service rejection, wrong AFC certificate, fragmented reads with and without TLS, wrong certificate rejection, early stream closure, stalled-operation cancellation, aggregate plist deadline, AFC frame bounds/sequence, and modern advertisement identity without legacy downgrade.
+- One-time setup: selected USB phone, existing Trust, set/read back wireless enablement, unplug and wait for Ready.
+- Fresh pairing: use a phone/Mac without prior pairing or an explicitly approved scoped reset, plus empty app preferences. Verify Enable rejects missing Trust; complete Finder/phone Trust; verify USB Enable survives its full cleanup and reads back enabled. Require an unplugged authenticated app connection and two captures before marking setup passed. A changed phone flag or direct diagnostic connection alone is insufficient. Record setup delay and recovery actions separately; see `AUTOMATIC_WIRELESS.md`.
+- Live: two or more screenshots arrive as PNG files, clipboard updates, recent panel latest first.
+- Rapid captures sharing an EXIF second: original DCIM sequence determines latest first even when received in reverse.
+- Lock/unlock and fresh connection: no baseline replay; new pending files survive.
+- USB handoff: confirm actual device identity fingerprints match between transports and no duplicate PNG is saved.
+- Disable during a read: no late presentation; re-enable begins a new baseline.
+- Corrupt images: unchanged size/modification time receives at most three downloads, including a structurally valid HEIC with undecodable pixels; later captures stay due. A repaired revision resumes delivery. Changing/incomplete files and transient disk failures remain retryable.
+- Duplicate device names: every device has its own row, disambiguated label, and ID-bound selection after refresh/reordering.
+- Native setup errors: missing/denied/pending Trust gives Trust guidance; password-protected or prohibited photo access gives unlock guidance.
+- Packaging: launch an app copy outside the checkout, verify signatures and no Homebrew dylib paths, confirm Info.plist minimum >= every bundled binary’s minimum.

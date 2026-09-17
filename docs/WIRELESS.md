@@ -7,7 +7,8 @@ Wireless has one main fallback sender:
 - The Mac app starts a small HTTP receiver while PhoneSnap is running.
 - The generated Shortcut is the fallback/manual sender. The user runs it after taking screenshots, and it sends the latest screenshot batch from Photos.
 - The Shortcut asks for the latest screenshot batch (10 by default; configurable by launching the Mac app with `PHONESNAP_BATCH_COUNT=<1-50>`, then re-downloading and re-adding the Shortcut) and posts each image as a separate upload.
-- The Mac saves each wireless upload, updates pasteboard to the latest upload, and presents a floating **Recent from iPhone** batch panel instead of the wired single thumbnail.
+- The Mac saves each wireless upload, updates pasteboard to the latest upload, and presents the chosen thumbnail style: the **Recent Screenshots** strip by default, or latest-only in Settings.
+- The panel sorts by capture date, newest to oldest from left to right, and keeps that order when a batch is re-sent. Re-download and re-add an older Shortcut to get capture dates even when its image files have no embedded date.
 - Embedded dev senders are deprecated/experimental references, not the main product path.
 
 No GitHub/Gist rendezvous, iCloud sync, third-party service, or manual Shortcut configuration is used.
@@ -52,6 +53,8 @@ Signing runs on a dedicated serial queue with a 30-second timeout, so a slow or 
 
 `POST /api/v1/upload/<pairId>` accepts either a raw PNG/JPEG body or `multipart/form-data` with an image/file part. The request body limit is 32 MB. Authenticated requests without a `Content-Length` header are rejected with `411 Length Required`; `Transfer-Encoding: chunked` is rejected with `501`.
 
+The optional `X-PhoneSnap-Captured-At` header carries an ISO 8601 timestamp with time and timezone (milliseconds supported). Generated Shortcuts read Photos' **Date Taken** for each image. Without a valid header, PhoneSnap uses embedded capture metadata or, when that is absent, the image's first receipt time; this last fallback cannot guarantee capture chronology. Repeated identical image bytes share one thumbnail dated to their latest known capture.
+
 Uploads should authenticate with:
 
 ```text
@@ -92,7 +95,7 @@ The generated Shortcut bakes in whichever host the iPhone used to reach the setu
 
 - USB remains the only universal automatic sender.
 - Shortcut wireless is not automatic. The user must run the PhoneSnap Shortcut after taking screenshots.
-- Wireless Shortcut is batch-oriented and opens the **Recent from iPhone** panel instead of the wired single-thumbnail panel.
+- Wireless Shortcut is batch-oriented and uses the same display preference as USB and automatic Wi-Fi: **Recent Screenshots** by default, or latest-only in Settings.
 - Dev senders are deprecated/experimental and no longer exposed in the main menu.
 - The iPhone and Mac must be on a network where the iPhone can reach the Mac.
 - macOS firewall or another process on the configured port can block the receiver.

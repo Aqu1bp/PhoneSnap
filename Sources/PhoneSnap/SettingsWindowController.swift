@@ -5,7 +5,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private let window: NSWindow
     private let latestOnlyButton = NSButton(radioButtonWithTitle: ThumbnailMode.latestOnly.title, target: nil, action: nil)
     private let recentStripButton = NSButton(radioButtonWithTitle: ThumbnailMode.recentStrip.title, target: nil, action: nil)
-    private let wirelessButton = NSButton(checkboxWithTitle: "Enable the wireless receiver", target: nil, action: nil)
+    private let wirelessButton = NSButton(checkboxWithTitle: "Enable the Shortcut upload receiver", target: nil, action: nil)
     private let wirelessNote = NSTextField(wrappingLabelWithString: "")
 
     private let wirelessEnabled: () -> Bool
@@ -38,7 +38,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         modeNote.font = .systemFont(ofSize: 11)
         modeNote.textColor = .secondaryLabelColor
 
-        let wirelessHeader = NSTextField(labelWithString: "Wireless")
+        let wirelessHeader = NSTextField(labelWithString: "Shortcut uploads")
         wirelessHeader.font = .systemFont(ofSize: 13, weight: .semibold)
 
         wirelessNote.font = .systemFont(ofSize: 11)

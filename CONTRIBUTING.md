@@ -5,13 +5,14 @@ Thanks for your interest in PhoneSnap!
 ## Building
 
 ```bash
+brew install pkgconf libimobiledevice openssl@3
 swift build            # debug build of all targets
 ./scripts/build-app.sh # release build wrapped into PhoneSnap.app
 ./scripts/smoke-test.sh # wireless receiver smoke test after swift build
 swift run PhoneSnap    # run from source with logs on stderr
 ```
 
-Requires macOS 13+ and Xcode 15+ / Swift 5.9+.
+Swift sources target macOS 13+ with Xcode 15+ / Swift 5.9+. Native Homebrew libraries may require a newer macOS; the bundle script records the highest dependency minimum in Info.plist. Build on the oldest supported deployment OS and validate there. The local Tahoe preview is macOS 26+. The app bundles all transitive dylibs and upstream license notices, then verifies ad-hoc signatures and relocation.
 
 ## Testing
 
@@ -35,7 +36,7 @@ are good places to start.
 
 ## Guidelines
 
-- Keep the app dependency-free (AppKit + system frameworks only).
+- Keep dependencies limited: AppKit/system frameworks for USB and UI, bundled libimobiledevice/OpenSSL for trusted automatic Wi-Fi. End users must not need Homebrew or Python.
 - Wired USB is the primary path; wireless is a fallback. Don't regress wired
   behavior to improve wireless.
 - Read [SECURITY.md](SECURITY.md) before changing the wireless receiver —

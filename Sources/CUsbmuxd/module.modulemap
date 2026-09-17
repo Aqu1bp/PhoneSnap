@@ -1,0 +1,4 @@
+module CUsbmuxd [system] {
+    header "shim.h"
+    export *
+}

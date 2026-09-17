@@ -1,6 +1,10 @@
 import AppKit
 
 final class StatusItemController: NSObject, NSMenuDelegate {
+    private let automaticStatus: () -> String
+    private let automaticEnabled: () -> Bool
+    private let onToggleAutomatic: (Bool) -> Void
+    private let onSetupAutomatic: () -> Void
     private let statusItem: NSStatusItem
     private let wiredStatus: () -> String
     private let wirelessStatus: () -> String
@@ -12,7 +16,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let onRevealFolder: () -> Void
     private let onSetupWireless: () -> Void
 
-    init(wiredStatus: @escaping () -> String,
+    init(automaticStatus: @escaping () -> String,
+         automaticEnabled: @escaping () -> Bool,
+         onToggleAutomatic: @escaping (Bool) -> Void,
+         onSetupAutomatic: @escaping () -> Void,
+         wiredStatus: @escaping () -> String,
          wirelessStatus: @escaping () -> String,
          wirelessEnabled: @escaping () -> Bool,
          onToggleWireless: @escaping (Bool) -> Void,
@@ -21,6 +29,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
          onShowLast: @escaping () -> Void,
          onRevealFolder: @escaping () -> Void,
          onSetupWireless: @escaping () -> Void) {
+        self.automaticStatus = automaticStatus
+        self.automaticEnabled = automaticEnabled
+        self.onToggleAutomatic = onToggleAutomatic
+        self.onSetupAutomatic = onSetupAutomatic
         self.wiredStatus = wiredStatus
         self.wirelessStatus = wirelessStatus
         self.wirelessEnabled = wirelessEnabled
@@ -67,23 +79,54 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         status.isEnabled = false
         menu.addItem(status)
 
+        let automatic = NSMenuItem(title: "Wi-Fi: " + automaticStatus(), action: nil, keyEquivalent: "")
+        automatic.isEnabled = false
+        menu.addItem(automatic)
+        menu.addItem(.separator())
+        let autoToggle = NSMenuItem(title: "Automatic Wi-Fi Screenshots", action: #selector(toggleAutomaticAction), keyEquivalent: "")
+        autoToggle.state = automaticEnabled() ? .on : .off
+        autoToggle.target = self
+        menu.addItem(autoToggle)
+        let autoSetup = NSMenuItem(title: "Set Up Automatic Wi-Fi…", action: #selector(setupAutomaticAction), keyEquivalent: "")
+        autoSetup.target = self
+        menu.addItem(autoSetup)
+        let legacyMenu = NSMenu(title: "Shortcut & Developer Uploads")
+        let legacyItem = NSMenuItem(title: "Shortcut & Developer Uploads", action: nil, keyEquivalent: "")
+        legacyItem.submenu = legacyMenu
+        menu.addItem(legacyItem)
+
         let wireless = NSMenuItem(title: wirelessStatus(), action: nil, keyEquivalent: "")
         wireless.isEnabled = false
-        menu.addItem(wireless)
-        menu.addItem(.separator())
+        legacyMenu.addItem(wireless)
+        legacyMenu.addItem(.separator())
+
+        let isEnabled = wirelessEnabled()
+        let toggle = NSMenuItem(
+            title: "Enable Shortcut Upload Receiver",
+            action: #selector(toggleWirelessAction),
+            keyEquivalent: ""
+        )
+        toggle.state = isEnabled ? .on : .off
+        toggle.target = self
+        toggle.toolTip = isEnabled
+            ? "PhoneSnap is listening for Shortcut uploads on this network."
+            : "Off — PhoneSnap opens no network listener. Wired capture is unaffected."
+        legacyMenu.addItem(toggle)
 
         let setup = NSMenuItem(title: "Set Up Wireless Shortcut...", action: #selector(setupWirelessAction), keyEquivalent: "")
         setup.target = self
-        menu.addItem(setup)
+        legacyMenu.addItem(setup)
 
         let rotate = NSMenuItem(
-            title: "Rotate Pairing...",
+            title: "Rotate Shortcut Pairing...",
             action: #selector(rotatePairingAction),
             keyEquivalent: ""
         )
         rotate.target = self
         rotate.toolTip = "Generate a new pair ID and token. Installed Shortcuts must be set up again."
-        menu.addItem(rotate)
+        legacyMenu.addItem(rotate)
+
+        legacyMenu.addItem(.separator())
 
         menu.addItem(.separator())
 
@@ -107,6 +150,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     func menuWillOpen(_ menu: NSMenu) { refresh() }
 
+    @objc private func toggleAutomaticAction() { onToggleAutomatic(!automaticEnabled()) }
+    @objc private func setupAutomaticAction() { onSetupAutomatic() }
     @objc private func toggleWirelessAction() { onToggleWireless(!wirelessEnabled()) }
     @objc private func settingsAction() { onOpenSettings() }
     @objc private func rotatePairingAction() { onRotatePairing() }

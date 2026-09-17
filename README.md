@@ -2,7 +2,7 @@
 
 Drag real iPhone screenshots into your coding agent.
 
-PhoneSnap is a small macOS menu bar app for AI-assisted iOS work. Plug in a trusted iPhone over USB, or run the generated iOS Shortcut over Wi-Fi, and PhoneSnap turns real device screenshots into draggable Mac thumbnails.
+PhoneSnap is a small macOS menu bar app for AI-assisted iOS work. Connect a trusted iPhone over USB or enable automatic capture over Wi-Fi, and PhoneSnap turns real device screenshots into draggable Mac thumbnails.
 
 The goal is simple: when your agent needs to understand a broken layout, a weird state, or a real-device visual bug, you should be able to take a screenshot and drop it straight into Codex, Cursor, Claude, ChatGPT, Slack, or an issue.
 
@@ -10,14 +10,14 @@ The goal is simple: when your agent needs to understand a broken layout, a weird
 
 The sample screenshots below are rendered from PhoneSnap's real AppKit views with generated phone-screen content, so they show the app without exposing anyone's device data.
 
-| Screenshot arrives | Wireless setup |
+| Screenshot arrives | Optional Shortcut setup |
 |--------------------|----------------|
-| Take a screenshot on the iPhone. PhoneSnap saves it, copies it, and shows a draggable thumbnail with quick actions. | If USB is not available, scan the setup QR once and install the generated Shortcut on the iPhone. |
+| Take a screenshot on the iPhone. PhoneSnap saves it, copies it, and shows a draggable thumbnail with quick actions. | The legacy Shortcut receiver remains available under **Shortcut & Developer Uploads**. Automatic Wi-Fi setup is described below. |
 | <img src="docs/assets/phonesnap-wired-thumbnail.png" alt="PhoneSnap wired screenshot thumbnail with copy, save, and trash actions" width="320"> | <img src="docs/assets/phonesnap-wireless-setup.png" alt="PhoneSnap wireless Shortcut setup QR window" width="420"> |
 
-When the Shortcut sends several screenshots, PhoneSnap keeps a **Recent from iPhone** strip open so each image can be dragged into an agent one by one.
+By default, PhoneSnap keeps a **Recent Screenshots** strip open for USB, automatic Wi-Fi, and Shortcut captures. Each image can be dragged into an agent one by one. Settings can switch all capture paths to a single latest thumbnail.
 
-<img src="docs/assets/phonesnap-wireless-batch.png" alt="PhoneSnap Recent from iPhone wireless batch panel with draggable thumbnails">
+<img src="docs/assets/phonesnap-wireless-batch.png" alt="PhoneSnap Recent Screenshots wireless batch panel with draggable thumbnails">
 
 ## How You Use It
 
@@ -26,15 +26,15 @@ When the Shortcut sends several screenshots, PhoneSnap keeps a **Recent from iPh
 3. Drag the thumbnail into your agent chat or issue.
 4. Ask for the fix with the real UI in view.
 
-USB is the primary path because macOS exposes a trusted plugged-in iPhone as a camera-class device through ImageCaptureCore. The wireless Shortcut is a manual fallback for times when USB is inconvenient.
+USB uses ImageCaptureCore. Automatic Wi-Fi uses the existing trusted device connection and reads new images without a Shortcut or companion iPhone app. The manual Shortcut receiver remains an optional fallback. Automatic Wi-Fi is new on this development branch; build this branch to try it.
 
 ## Requirements
 
-- macOS 13+
-- Swift 5.9+ / Xcode 15+ to build
+- macOS matching the built app’s minimum version. Swift sources target macOS 13; bundled native libraries can raise the minimum. The local Tahoe preview requires macOS 26. Build on the oldest macOS version you intend to support and test there.
+- Swift 5.9+ / Xcode 15+, `pkgconf`, `libimobiledevice`, and `openssl@3` to build. Distributed app bundles include their native libraries; users do not need Homebrew or Python.
 - iPhone or iPad that appears to macOS through ImageCaptureCore
 - USB or USB-C cable for wired mode
-- Same Wi-Fi/LAN for wireless Shortcut mode
+- Same Wi-Fi/LAN and one-time trusted cable setup for automatic Wi-Fi; tested with iOS 26.5. Same LAN for Shortcut uploads.
 
 ## Quick Start
 
@@ -63,6 +63,7 @@ To build from source instead:
 ```bash
 git clone https://github.com/Aqu1bp/PhoneSnap.git
 cd PhoneSnap
+brew install pkgconf libimobiledevice openssl@3
 ./scripts/build-app.sh
 open ./PhoneSnap.app
 ```
@@ -81,28 +82,49 @@ A small iPhone icon appears in the menu bar. The app is running.
 
 Behind the scenes, PhoneSnap uses Apple's ImageCaptureCore framework. macOS exposes a trusted, plugged-in iPhone as a camera-class device, so PhoneSnap can watch for new camera-roll items after startup, filter likely screenshots, save them locally, copy them to the clipboard, and show the thumbnail.
 
+### Automatic Wi-Fi Screenshots
+
+This preview has passed capture tests with an already paired iPhone and after a controlled unpair/re-pair test. It uses verified TLS for every Wi-Fi connection, using either Apple's device list or Bonjour for discovery; phones without encrypted photo access require a cable. In earlier testing, a forced direct-route test reached Ready in about 4.6 seconds and received both screenshots. Consistently quick first-time onboarding on a second Mac is not yet established; see the [test results](docs/AUTOMATIC_WIRELESS.md).
+
+1. Choose **Set Up Automatic Wi-Fi…** in the PhoneSnap menu.
+2. For a new phone, plug it in, unlock it, select it in Finder, and approve **Trust** on both devices.
+3. Select the phone and click **Enable Wireless** in PhoneSnap. Unplug the cable.
+4. Keep both devices on the same Wi-Fi. Wait for **Ready**, then save screenshots normally.
+5. Screenshots appear in **Recent Screenshots**, newest first, and are copied to the clipboard.
+
+An already paired phone visible over Wi-Fi can be selected without connecting a cable again. **Automatic Wi-Fi Screenshots** in the menu toggles watching. Turning it off stops PhoneSnap’s watcher; it does not revoke the Mac’s trust or disable Apple’s Wi-Fi access setting. The Shortcut HTTP receiver has a separate switch.
+
+The initial photo catalog is skipped before Ready, so old photos do not flood the panel. Pending images survive short reconnects while the app stays enabled. This preview does not import historical screenshots after quitting/restarting or turning capture off. While the same phone is cabled, USB handles capture; unplugging resumes Wi-Fi. Unlock the phone if it disappears from discovery.
+
+The screen-shape and camera-metadata filter is a heuristic, not Photos’ screenshot album classification. Full-page/PDF captures and unusual image dimensions may be skipped; other saved screen-shaped images without camera metadata can match. Long standby and Wi-Fi changes still need broader testing.
+
+Finder → iPhone → General → **Show this iPhone when on Wi-Fi** → Apply is Apple's wireless setup step, but did not immediately resolve the discovery delay in the re-pairing test. Successful enablement alone does not establish capture readiness. See [automatic Wi-Fi details](docs/AUTOMATIC_WIRELESS.md).
+
 ### Wireless Shortcut Batch Fallback
 
 1. Open the PhoneSnap menu bar item.
-2. Choose **Set Up Wireless Shortcut...**.
+2. Open **Shortcut & Developer Uploads** → **Set Up Wireless Shortcut...**.
 3. Scan the setup QR code with the iPhone Camera, or copy/open the setup URL. If the `.local` hostname will not load on your network, switch the QR to **IP address** in the setup window.
 4. On the iPhone, open `PhoneSnap.shortcut` and add it in Shortcuts.
 5. Take a screenshot, then run the PhoneSnap Shortcut from Shortcuts, Action Button, Back Tap, Control Center, or the Home Screen.
 
-The Shortcut is generated locally by the Mac app. It asks Photos for the latest screenshot batch (10 by default, configurable with `PHONESNAP_BATCH_COUNT`) and posts each image to `POST /api/v1/upload/<pairId>` with a persisted bearer token, so the user does not type the URL, method, headers, or body. As uploads arrive, PhoneSnap updates the floating **Recent from iPhone** panel with draggable thumbnails. This remains useful when USB is unavailable.
+The Shortcut is generated locally by the Mac app. It asks Photos for the latest screenshot batch (10 by default, configurable with `PHONESNAP_BATCH_COUNT`) and posts each image to `POST /api/v1/upload/<pairId>` with a persisted bearer token, so the user does not type the URL, method, headers, or body. As uploads arrive, PhoneSnap updates the floating **Recent Screenshots** panel with draggable thumbnails, ordered by capture date from newest on the left to oldest on the right. Re-running the Shortcut keeps previously received screenshots in their chronological positions. This remains useful when USB is unavailable.
+
+Re-download and re-add the Shortcut after updating PhoneSnap to include capture dates in uploads. Older Shortcuts still work; the Mac uses embedded image capture dates when available, otherwise the first receipt time, which cannot guarantee capture order.
 
 Existing installed PhoneSnap Shortcuts should be removed and reinstalled from the setup page to get batch behavior.
 
 ## What Is Supported
 
 - Primary path: a trusted iPhone connected to the Mac over USB.
+- Automatic Wi-Fi: new screenshots from the selected trusted iPhone, with one-time cable setup.
 - Fallback path: a locally generated, signed iOS Shortcut that sends a screenshot batch over the LAN.
 - Deprecated/experimental: automatic wireless senders embedded in the foreground app being built.
 - Deliberately not used: GitHub Gist rendezvous, third-party services, iCloud, or manual Shortcut URL/header/body entry.
 
 The `senders/` packages are deprecated as a main product path for now. They are kept as experimental references for foreground-app debug builds that post directly to the Mac upload endpoint. The menu no longer exposes a happy-path dev sender config action.
 
-## Wired Thumbnail Behavior
+## Latest-only Thumbnail Behavior
 
 - Appears bottom-right of the screen containing the cursor.
 - Auto-copies the screenshot to the clipboard on arrival.
@@ -111,10 +133,10 @@ The `senders/` packages are deprecated as a main product path for now. They are 
 - Press ESC or click the close button to dismiss.
 - Auto-fades after 8 seconds; hovering resets the timer.
 
-## Wireless Batch Behavior
+## Recent Screenshot Strip Behavior
 
-- Wireless Shortcut uploads do not show the wired single thumbnail by default.
-- The Mac opens a floating **Recent from iPhone** panel immediately and updates it as more screenshots arrive.
+- The strip is the default for USB, automatic Wi-Fi, and Shortcut uploads; Settings applies the chosen style to all three.
+- The Mac opens a floating **Recent Screenshots** panel immediately and updates it as more screenshots arrive.
 - Each panel thumbnail can be dragged into agent apps and file drop targets.
 - Click a panel thumbnail to copy it to the clipboard.
 - Double-click a panel thumbnail to open it in Preview.
@@ -157,13 +179,20 @@ iPhone over USB
     -> writes PNG/TIFF/file URL to NSPasteboard
     -> shows a floating NSPanel thumbnail
 
-iPhone over Wi-Fi
+iPhone over automatic Wi-Fi
+  trusted phone discovered through Apple's device list or Bonjour
+    -> existing pairing authenticates the photo connection
+    -> initial catalog is skipped before Ready
+    -> new screenshots are read, saved, and copied to the clipboard
+    -> Mac updates Recent Screenshots in capture order
+
+iPhone over Wi-Fi with Shortcut fallback
   user runs generated PhoneSnap Shortcut
     -> Shortcut reads the latest screenshot batch from Photos
     -> repeats over the screenshots
     -> POSTs each image to the Mac receiver with Authorization: Bearer <token>
     -> Mac saves each PNG, updates pasteboard to the latest upload
-    -> Mac shows the Recent from iPhone batch panel
+    -> Mac shows the Recent Screenshots batch panel
 
 iPhone over Wi-Fi experimental
   foreground app includes deprecated debug PhoneSnap sender
@@ -196,7 +225,7 @@ iPhone over Wi-Fi experimental
 - Wireless requires the Mac app to be running and reachable from the iPhone on the local network.
 - The wireless receiver is off on a new install; enable it from the menu bar or by opening wireless setup.
 - Shortcut signing depends on `/usr/bin/shortcuts sign --mode anyone`.
-- Wired mode shows one thumbnail at a time. A new wired screenshot dismisses the old wired thumbnail.
+- Latest-only mode shows one thumbnail at a time. A new screenshot dismisses the previous thumbnail.
 - Screenshot detection uses dimensions/aspect-ratio heuristics to avoid importing normal camera photos.
 - No app sandbox, and ad-hoc signing rather than Developer ID notarization. First launch requires approving PhoneSnap in System Settings -> Privacy & Security, or removing quarantine metadata. See [Quick Start](#quick-start).
 - No automated iPhone end-to-end test; full wired/wireless verification requires a real trusted iPhone.
@@ -219,7 +248,7 @@ PhoneSnap/
 │   ├── Pasteboard.swift           multi-type clipboard write
 │   ├── StatusItemController.swift menu bar item
 │   ├── WirelessReceiver.swift     local HTTP setup/upload receiver
-│   ├── WirelessBatchPresenter...   Recent from iPhone batch panel
+│   ├── RecentScreenshotsPresenter...   Recent Screenshots batch panel
 │   ├── WirelessSetupWindow...     setup QR/window UI
 │   ├── WirelessShortcut...        signed Shortcut generation
 │   ├── ThumbnailPresenter.swift   wires saved image to thumbnail window
@@ -237,7 +266,7 @@ PhoneSnap/
 
 ## Security
 
-Wireless mode runs a plain-HTTP receiver on your LAN, protected by a random pair ID and bearer token. It is off until you turn it on, so a wired-only install opens no network listener. Read [SECURITY.md](SECURITY.md) before enabling it on a shared network.
+Automatic Wi-Fi makes authenticated outbound connections using the selected phone's existing Apple pairing. The separate Shortcut fallback runs a plain-HTTP receiver on your LAN, protected by a random pair ID and bearer token. That receiver is off until enabled. Read [SECURITY.md](SECURITY.md) for each mode's protections and limits.
 
 ## Contributing
 

@@ -46,45 +46,9 @@ enum WirelessShortcutGenerator {
         let cacheKey = "\(uploadURL)\n\(token)\n\(batchCount)\n\(shortcutName)"
         if let cached = signedCache.value(for: cacheKey) { return cached }
 
-        let waitUUID = UUID().uuidString
-        let screenshotUUID = UUID().uuidString
-        let repeatGroupUUID = UUID().uuidString
-        let repeatStartUUID = UUID().uuidString
-        let uploadUUID = UUID().uuidString
-        let repeatEndUUID = UUID().uuidString
-        let xml = template
-            .replacingOccurrences(of: "$$SHORTCUT_NAME$$", with: xmlEscape(shortcutName))
-            .replacingOccurrences(of: "$$UPLOAD_URL$$", with: xmlEscape(uploadURL))
-            .replacingOccurrences(of: "$$TOKEN$$", with: xmlEscape("Bearer \(token)"))
-            .replacingOccurrences(of: "$$BATCH_COUNT$$", with: String(batchCount))
-            .replacingOccurrences(of: "$$WAIT_UUID$$", with: waitUUID)
-            .replacingOccurrences(of: "$$SCREENSHOT_UUID$$", with: screenshotUUID)
-            .replacingOccurrences(of: "$$REPEAT_GROUP_UUID$$", with: repeatGroupUUID)
-            .replacingOccurrences(of: "$$REPEAT_START_UUID$$", with: repeatStartUUID)
-            .replacingOccurrences(of: "$$UPLOAD_UUID$$", with: uploadUUID)
-            .replacingOccurrences(of: "$$REPEAT_END_UUID$$", with: repeatEndUUID)
-
-        guard let xmlData = xml.data(using: .utf8) else {
-            throw GenerateError.templateEncodingFailed
-        }
-
-        let plistObject: Any
-        do {
-            plistObject = try PropertyListSerialization.propertyList(from: xmlData, options: [], format: nil)
-        } catch {
-            throw GenerateError.plistConversionFailed(error)
-        }
-
-        let unsignedData: Data
-        do {
-            unsignedData = try PropertyListSerialization.data(
-                fromPropertyList: plistObject,
-                format: .binary,
-                options: 0
-            )
-        } catch {
-            throw GenerateError.plistConversionFailed(error)
-        }
+        let unsignedData = try makeUnsigned(
+            uploadURL: uploadURL, token: token, batchCount: batchCount, shortcutName: shortcutName
+        )
 
         let tempDir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
         let runID = UUID().uuidString
@@ -146,6 +110,52 @@ enum WirelessShortcutGenerator {
 
         signedCache.insert(signed, for: cacheKey)
         return signed
+    }
+
+    /// Kept separate from signing so the workflow's data flow can be verified.
+    static func makeUnsigned(uploadURL: String,
+                             token: String,
+                             batchCount: Int = 10,
+                             shortcutName: String = "PhoneSnap") throws -> Data {
+        let batchCount = min(max(batchCount, 1), 50)
+        let waitUUID = UUID().uuidString
+        let screenshotUUID = UUID().uuidString
+        let repeatGroupUUID = UUID().uuidString
+        let repeatStartUUID = UUID().uuidString
+        let uploadUUID = UUID().uuidString
+        let repeatEndUUID = UUID().uuidString
+        let xml = template
+            .replacingOccurrences(of: "$$SHORTCUT_NAME$$", with: xmlEscape(shortcutName))
+            .replacingOccurrences(of: "$$UPLOAD_URL$$", with: xmlEscape(uploadURL))
+            .replacingOccurrences(of: "$$TOKEN$$", with: xmlEscape("Bearer \(token)"))
+            .replacingOccurrences(of: "$$BATCH_COUNT$$", with: String(batchCount))
+            .replacingOccurrences(of: "$$WAIT_UUID$$", with: waitUUID)
+            .replacingOccurrences(of: "$$SCREENSHOT_UUID$$", with: screenshotUUID)
+            .replacingOccurrences(of: "$$REPEAT_GROUP_UUID$$", with: repeatGroupUUID)
+            .replacingOccurrences(of: "$$REPEAT_START_UUID$$", with: repeatStartUUID)
+            .replacingOccurrences(of: "$$UPLOAD_UUID$$", with: uploadUUID)
+            .replacingOccurrences(of: "$$REPEAT_END_UUID$$", with: repeatEndUUID)
+
+        guard let xmlData = xml.data(using: .utf8) else {
+            throw GenerateError.templateEncodingFailed
+        }
+
+        let plistObject: Any
+        do {
+            plistObject = try PropertyListSerialization.propertyList(from: xmlData, options: [], format: nil)
+        } catch {
+            throw GenerateError.plistConversionFailed(error)
+        }
+
+        do {
+            return try PropertyListSerialization.data(
+                fromPropertyList: plistObject,
+                format: .binary,
+                options: 0
+            )
+        } catch {
+            throw GenerateError.plistConversionFailed(error)
+        }
     }
 
     private static func xmlEscape(_ string: String) -> String {
@@ -332,6 +342,59 @@ enum WirelessShortcutGenerator {
                                         <dict>
                                             <key>string</key>
                                             <string>$$TOKEN$$</string>
+                                        </dict>
+                                        <key>WFSerializationType</key>
+                                        <string>WFTextTokenString</string>
+                                    </dict>
+                                </dict>
+                                <dict>
+                                    <key>WFItemType</key>
+                                    <integer>0</integer>
+                                    <key>WFKey</key>
+                                    <dict>
+                                        <key>Value</key>
+                                        <dict>
+                                            <key>string</key>
+                                            <string>X-PhoneSnap-Captured-At</string>
+                                        </dict>
+                                        <key>WFSerializationType</key>
+                                        <string>WFTextTokenString</string>
+                                    </dict>
+                                    <key>WFValue</key>
+                                    <dict>
+                                        <key>Value</key>
+                                        <dict>
+                                            <key>string</key>
+                                            <string>￼</string>
+                                            <key>attachmentsByRange</key>
+                                            <dict>
+                                                <key>{0, 1}</key>
+                                                <dict>
+                                                    <key>Type</key>
+                                                    <string>Variable</string>
+                                                    <key>VariableName</key>
+                                                    <string>Repeat Item</string>
+                                                    <key>Aggrandizements</key>
+                                                    <array>
+                                                        <dict>
+                                                            <key>Type</key>
+                                                            <string>WFPropertyVariableAggrandizement</string>
+                                                            <key>PropertyName</key>
+                                                            <string>Date Taken</string>
+                                                        </dict>
+                                                        <dict>
+                                                            <key>Type</key>
+                                                            <string>WFDateFormatVariableAggrandizement</string>
+                                                            <key>WFDateFormatStyle</key>
+                                                            <string>Custom</string>
+                                                            <key>WFDateFormat</key>
+                                                            <string>yyyy-MM-dd'T'HH:mm:ss.SSSXXXXX</string>
+                                                            <key>WFISO8601IncludeTime</key>
+                                                            <false/>
+                                                        </dict>
+                                                    </array>
+                                                </dict>
+                                            </dict>
                                         </dict>
                                         <key>WFSerializationType</key>
                                         <string>WFTextTokenString</string>

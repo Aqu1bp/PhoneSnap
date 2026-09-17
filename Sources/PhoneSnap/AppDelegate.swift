@@ -10,6 +10,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var wirelessSetupWindow: WirelessSetupWindowController!
     private var settingsWindow: SettingsWindowController!
     private let store = ImageStore()
+    private let automaticWatcher = AutomaticWirelessWatcher()
+    private var automaticSetup: AutomaticWirelessSetupWindow!
+    private var automaticState = AutomaticWirelessWatcher.Status(text: "Off")
+    private var automaticEnabled = false
+    private let captureQueue = DispatchQueue(label: "phonesnap.capture-delivery", qos: .userInitiated)
+    private var captureDelivery = AutomaticCaptureDelivery()
+    private var lastDeliveredURL: URL?
+    private var workspaceObservers: [NSObjectProtocol] = []
     /// Assigned in `applicationDidFinishLaunching`, after the enablement
     /// migration has had a chance to observe whether a pairing already
     /// existed — `WirelessPairing.load()` provisions one as a side effect.
@@ -44,6 +52,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 lanIP: nil
             )
         })
+        automaticSetup = AutomaticWirelessSetupWindow(watcher: automaticWatcher) { [weak self] phone in
+            AutomaticWirelessSettings.select(phone)
+            self?.setAutomaticEnabled(true)
+        }
+        automaticWatcher.onStatus = { [weak self] status in
+            self?.automaticState = status
+            self?.automaticSetup.updateStatus(status.text, ready: status.ready)
+            self?.refreshConnectionStatus()
+        }
+        automaticWatcher.onImage = { [weak self] data, name, capturedAt, phoneID, isCurrent in
+            try self?.deliverAutomatic(data: data, name: name, capturedAt: capturedAt, deviceID: phoneID, wireless: true, isCurrent: isCurrent) ?? false
+        }
         settingsWindow = SettingsWindowController(
             wirelessEnabled: { [weak self] in self?.wirelessEnabled ?? false },
             onToggleWireless: { [weak self] enabled in self?.setWirelessEnabled(enabled) },
@@ -53,6 +73,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         )
         statusItemController = StatusItemController(
+            automaticStatus: { [weak self] in self?.automaticState.text ?? "Off" },
+            automaticEnabled: { [weak self] in self?.automaticEnabled ?? false },
+            onToggleAutomatic: { [weak self] in self?.setAutomaticEnabled($0) },
+            onSetupAutomatic: { [weak self] in self?.automaticSetup.show() },
             wiredStatus: { [weak self] in
                 let names = self?.cameraBridge?.connectedDeviceNames ?? []
                 if names.isEmpty {
@@ -86,13 +110,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // ImageCaptureCore watches trusted USB-connected iPhones and emits
         // new camera-roll items created after app startup.
-        cameraBridge = CameraBridge { [weak self] data, name in
+        cameraBridge = CameraBridge { [weak self] data, name, capturedAt, deviceID in
             guard let self else { return }
-            _ = self.deliver(data: data, source: "Cable(\(name))")
+            _ = try? self.deliverAutomatic(data: data, name: name, capturedAt: capturedAt, deviceID: deviceID, wireless: false, isCurrent: { true })
         }
         cameraBridge.onDevicesChanged = { [weak self] names in
-            self?.statusItemController.setConnected(!names.isEmpty)
-            self?.statusItemController.refresh()
+            self?.refreshConnectionStatus()
         }
 
         if wirelessEnabled {
@@ -103,11 +126,74 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         Log.info("Starting wired iPhone screenshot watcher")
         cameraBridge.start()
+        if AutomaticWirelessSettings.enabled { setAutomaticEnabled(true) }
+        let center = NSWorkspace.shared.notificationCenter
+        workspaceObservers.append(center.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.automaticWatcher.stop()
+        })
+        workspaceObservers.append(center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            guard let self, self.automaticEnabled, let id = AutomaticWirelessSettings.phoneID else { return }
+            self.automaticWatcher.start(phoneID: id)
+        })
+        if ProcessInfo.processInfo.arguments.contains("--setup-wireless") { automaticSetup.show() }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        automaticWatcher.stop()
+        for observer in workspaceObservers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
         wirelessReceiver?.stop()
         cameraBridge?.stop()
+    }
+
+    private func refreshConnectionStatus() {
+        statusItemController.setConnected(automaticState.connected || !(cameraBridge?.connectedDeviceNames.isEmpty ?? true))
+        statusItemController.refresh()
+    }
+
+    @MainActor
+    private func setAutomaticEnabled(_ enabled: Bool) {
+        if enabled, AutomaticWirelessSettings.phoneID == nil { automaticSetup.show(); return }
+        automaticEnabled = enabled
+        AutomaticWirelessSettings.setEnabled(enabled)
+        if enabled, let id = AutomaticWirelessSettings.phoneID {
+            automaticState = .init(text: "Connecting…")
+            automaticWatcher.start(phoneID: id)
+        } else {
+            automaticSetup.cancelPendingEnable()
+            automaticWatcher.stop()
+            automaticWatcher.resetCatalog()
+            automaticState = .init(text: "Off")
+        }
+        automaticSetup.updateStatus(automaticState.text, ready: automaticState.ready)
+        refreshConnectionStatus()
+    }
+
+    /// Save once across USB/Wi-Fi, then present on main. Shortcut replays keep their own semantics.
+    private func deliverAutomatic(data: Data, name: String, capturedAt: Date?, deviceID: String?, wireless: Bool, isCurrent: @escaping () -> Bool) throws -> Bool {
+        guard isCurrent() else { return false }
+        Log.info("Capture identity via \(wireless ? "Wi-Fi" : "USB"): \(AutomaticCaptureDelivery.fingerprint(deviceID))")
+        var savedURL: URL?
+        let accepted: Bool = try captureQueue.sync {
+            let key = AutomaticCaptureDelivery.key(deviceID: deviceID, name: name, capturedAt: capturedAt, data: data)
+            if captureDelivery.contains(key) { return true }
+            do {
+                guard isCurrent() else { return false }
+                let url = try store.save(data: data)
+                captureDelivery.record(key)
+                savedURL = url
+                return true
+            } catch { Log.error("Automatic screenshot save failed: \(error)"); throw error }
+        }
+        if let url = savedURL {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, isCurrent() else { return }
+                self.lastDeliveredURL = url
+                self.surface(fileURL: url, date: capturedAt ?? Date(), captureOrder: name)
+                Pasteboard.write(fileURL: url)
+                Log.info("Delivered via \(wireless ? "Automatic Wi-Fi" : "Cable"): \(url.lastPathComponent)")
+            }
+        }
+        return accepted
     }
 
     // MARK: wireless lifecycle
@@ -117,9 +203,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             port: wirelessPort,
             pairing: wirelessPairing,
             batchCount: wirelessBatchCount,
-            uploadHandler: { [weak self] data in
+            uploadHandler: { [weak self] data, capturedAt in
                 guard let self else { return .storageFailure }
-                return self.deliverWireless(data: data)
+                return self.deliverWireless(data: data, capturedAt: capturedAt)
             },
             stateHandler: { [weak self] state in
                 DispatchQueue.main.async {
@@ -198,6 +284,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// right after launch too.
     @MainActor
     private func showLastScreenshot() {
+        if let lastDeliveredURL, FileManager.default.fileExists(atPath: lastDeliveredURL.path) {
+            presenter.present(fileURL: lastDeliveredURL)
+            return
+        }
         if presenter.lastFileURL != nil {
             presenter.showLast()
             return
@@ -222,30 +312,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Single surfacing path for every capture source. Which presenter is used
     /// is the user's preference, not a property of how the screenshot arrived.
     @MainActor
-    private func surface(fileURL: URL) {
+    private func surface(fileURL: URL, date: Date, captureOrder: String? = nil) {
         let mode = ThumbnailSettings.mode()
         Log.info("Surfacing \(fileURL.lastPathComponent) as \(mode.rawValue)")
         switch mode {
         case .latestOnly:
             presenter.present(fileURL: fileURL)
         case .recentStrip:
-            recentPresenter.enqueue(fileURL: fileURL)
-        }
-    }
-
-    @discardableResult
-    private func deliver(data: Data, source: String) -> Bool {
-        do {
-            let url = try store.save(data: data)
-            Log.info("Delivered via \(source): \(url.lastPathComponent)")
-            DispatchQueue.main.async { [weak self] in
-                self?.surface(fileURL: url)
-                Pasteboard.write(fileURL: url)
-            }
-            return true
-        } catch {
-            Log.error("Save failed (\(source)): \(error)")
-            return false
+            recentPresenter.enqueue(fileURL: fileURL, date: date, captureOrder: captureOrder)
         }
     }
 
@@ -253,30 +327,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Shortcut re-sends the configured recent screenshot batch on every run, so
     /// duplicates skip the disk write — but still re-surface in the panel,
     /// otherwise a second run after closing the panel shows nothing.
-    private var seenWirelessUploads: [String: URL] = [:]
+    private var seenWirelessUploads: [String: WirelessScreenshot] = [:]
     private let seenWirelessUploadsLock = NSLock()
 
     @discardableResult
-    private func deliverWireless(data: Data) -> WirelessReceiver.UploadResult {
+    private func deliverWireless(data: Data, capturedAt: Date?) -> WirelessReceiver.UploadResult {
         let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        let captureDate = capturedAt ?? ScreenshotCaptureDate.fromImageData(data)
         seenWirelessUploadsLock.lock()
-        let existing = seenWirelessUploads[digest]
+        var existing = seenWirelessUploads[digest]
+        // Upgrade missing dates, and recognize a newer capture of identical
+        // pixels without letting an older batch replay move it backwards.
+        existing?.recordCaptureDate(captureDate)
+        if let existing { seenWirelessUploads[digest] = existing }
         seenWirelessUploadsLock.unlock()
         if let existing {
-            Log.info("Wireless upload already received this session: re-showing \(existing.lastPathComponent)")
+            Log.info("Wireless upload already received this session: re-showing \(existing.fileURL.lastPathComponent)")
             DispatchQueue.main.async { [weak self] in
-                self?.surface(fileURL: existing)
+                self?.surface(fileURL: existing.fileURL, date: existing.sortDate)
             }
             return .accepted
         }
         do {
             let url = try store.save(data: data)
+            let item = WirelessScreenshot(fileURL: url, capturedAt: captureDate, receivedAt: Date())
             seenWirelessUploadsLock.lock()
-            seenWirelessUploads[digest] = url
+            seenWirelessUploads[digest] = item
             seenWirelessUploadsLock.unlock()
             Log.info("Delivered via Wireless Shortcut Batch: \(url.lastPathComponent)")
             DispatchQueue.main.async { [weak self] in
-                self?.surface(fileURL: url)
+                self?.lastDeliveredURL = url
+                self?.surface(fileURL: url, date: item.sortDate)
                 Pasteboard.write(fileURL: url)
             }
             return .accepted

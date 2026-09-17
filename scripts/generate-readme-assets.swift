@@ -49,14 +49,14 @@ struct ReadmeAssetGenerator {
     }
 
     private static func renderWirelessBatch(sampleURLs: [URL], to outputURL: URL) throws {
-        let controller = RecentFromIPhonePanelController(fileURLs: sampleURLs) { _ in }
+        let controller = RecentScreenshotsPanelController(fileURLs: sampleURLs) { _ in }
         controller.show()
         pumpMainRunLoop()
-        guard let window = NSApp.windows.first(where: { $0.title == "Recent from iPhone" }),
+        guard let window = NSApp.windows.first(where: { $0.title == "Recent Screenshots" }),
               let view = window.contentView else {
             throw AssetError.message("Could not find recent panel")
         }
-        try renderFramed(view: view, size: view.bounds.size, padding: 34, title: "Recent from iPhone", to: outputURL)
+        try renderFramed(view: view, size: view.bounds.size, padding: 34, title: "Recent Screenshots", to: outputURL)
         window.close()
     }
 
