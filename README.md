@@ -68,6 +68,8 @@ Behind the scenes, PhoneSnap uses Apple's ImageCaptureCore framework. macOS expo
 
 ### Automatic Wi-Fi Screenshots
 
+This preview has passed capture tests with an already discoverable paired iPhone. A controlled unpair/re-pair test exposed a Mac discovery failure even after trust and direct Wi-Fi authentication succeeded. First-time onboarding is not yet verified end to end; see the [test results](docs/AUTOMATIC_WIRELESS.md#fresh-pairing-test--17-september-2026).
+
 1. Choose **Set Up Automatic Wi-Fi…** in the PhoneSnap menu.
 2. For a new phone, plug it in, unlock it, select it in Finder, and approve **Trust** on both devices.
 3. Select the phone and click **Enable Wireless** in PhoneSnap. Unplug the cable.
@@ -78,9 +80,9 @@ An already paired phone visible over Wi-Fi can be selected without connecting a 
 
 The initial photo catalog is skipped before Ready, so old photos do not flood the panel. Pending images survive short reconnects while the app stays enabled. This preview does not import historical screenshots after quitting/restarting or turning capture off. While the same phone is cabled, USB handles capture; unplugging resumes Wi-Fi. Unlock the phone if it disappears from discovery.
 
-The screen-shape and camera-metadata filter is a heuristic, not Photos’ screenshot album classification. Full-page/PDF captures and unusual image dimensions may be skipped; other saved screen-shaped images without camera metadata can match. Long standby, Wi-Fi changes, and fresh trust on an unpaired device still need broader testing.
+The screen-shape and camera-metadata filter is a heuristic, not Photos’ screenshot album classification. Full-page/PDF captures and unusual image dimensions may be skipped; other saved screen-shaped images without camera metadata can match. Long standby and Wi-Fi changes still need broader testing.
 
-If enabling Wi-Fi fails, use Finder → iPhone → General → **Show this iPhone when on Wi-Fi** → Apply, then retry PhoneSnap setup. See [automatic Wi-Fi details](docs/AUTOMATIC_WIRELESS.md).
+Finder → iPhone → General → **Show this iPhone when on Wi-Fi** → Apply is Apple's wireless setup step, but did not resolve the discovery failure in the re-pairing test. Successful enablement alone does not establish capture readiness. See [automatic Wi-Fi details](docs/AUTOMATIC_WIRELESS.md).
 
 ### Wireless Shortcut Batch Fallback
 

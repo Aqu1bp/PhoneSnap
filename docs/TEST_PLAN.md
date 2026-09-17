@@ -110,6 +110,7 @@ First run may require iOS Photos and local-network permission. Existing installe
 - Fresh preferences: automatic capture off; legacy receiver remains independently off.
 - Native read-only hardware test: explicitly Network, no USB, existing pairing only.
 - One-time setup: selected USB phone, existing Trust, set/read back wireless enablement, unplug and wait for Ready.
+- Fresh pairing: use a phone/Mac without prior pairing or an explicitly approved scoped reset, plus empty app preferences. Verify Enable rejects missing Trust; complete Finder/phone Trust; verify USB Enable survives its full cleanup and reads back enabled. Require an unplugged authenticated app connection and two captures before marking setup passed. A changed phone flag or direct diagnostic connection alone is insufficient. See the recorded discovery blocker in `AUTOMATIC_WIRELESS.md`.
 - Live: two or more screenshots arrive as PNG files, clipboard updates, recent panel latest first.
 - Rapid captures sharing an EXIF second: original DCIM sequence determines latest first even when received in reverse.
 - Lock/unlock and fresh connection: no baseline replay; new pending files survive.

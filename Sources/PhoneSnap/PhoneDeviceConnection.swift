@@ -94,8 +94,10 @@ final class PhoneDeviceConnection {
 
     func enableWiFi() throws {
         guard phone.isUSB else { return }
+        guard let lockdown else { throw PhoneConnectionError.unavailable }
+        // SetValue takes ownership of this node and frees it with its request.
+        // GetValue below returns a separate node owned by the caller.
         let value = plist_new_bool(1)
-        defer { plist_free(value) }
         try check(lockdownd_set_value(lockdown, "com.apple.mobile.wireless_lockdown", "EnableWifiConnections", value), "Enabling wireless access")
         var readback: plist_t?
         try check(lockdownd_get_value(lockdown, "com.apple.mobile.wireless_lockdown", "EnableWifiConnections", &readback), "Checking wireless access")
