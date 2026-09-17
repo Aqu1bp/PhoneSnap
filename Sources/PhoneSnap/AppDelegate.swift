@@ -107,9 +107,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             port: wirelessPort,
             pairing: wirelessPairing,
             batchCount: wirelessBatchCount,
-            uploadHandler: { [weak self] data in
+            uploadHandler: { [weak self] data, capturedAt in
                 guard let self else { return .storageFailure }
-                return self.deliverWireless(data: data)
+                return self.deliverWireless(data: data, capturedAt: capturedAt)
             },
             stateHandler: { [weak self] state in
                 DispatchQueue.main.async {
@@ -229,30 +229,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Shortcut re-sends the configured recent screenshot batch on every run, so
     /// duplicates skip the disk write — but still re-surface in the panel,
     /// otherwise a second run after closing the panel shows nothing.
-    private var seenWirelessUploads: [String: URL] = [:]
+    private var seenWirelessUploads: [String: WirelessScreenshot] = [:]
     private let seenWirelessUploadsLock = NSLock()
 
     @discardableResult
-    private func deliverWireless(data: Data) -> WirelessReceiver.UploadResult {
+    private func deliverWireless(data: Data, capturedAt: Date?) -> WirelessReceiver.UploadResult {
         let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        let captureDate = capturedAt ?? ScreenshotCaptureDate.fromImageData(data)
         seenWirelessUploadsLock.lock()
-        let existing = seenWirelessUploads[digest]
+        var existing = seenWirelessUploads[digest]
+        // Upgrade missing dates, and recognize a newer capture of identical
+        // pixels without letting an older batch replay move it backwards.
+        existing?.recordCaptureDate(captureDate)
+        if let existing { seenWirelessUploads[digest] = existing }
         seenWirelessUploadsLock.unlock()
         if let existing {
-            Log.info("Wireless upload already received this session: re-showing \(existing.lastPathComponent)")
+            Log.info("Wireless upload already received this session: re-showing \(existing.fileURL.lastPathComponent)")
             DispatchQueue.main.async { [weak self] in
-                self?.wirelessBatchPresenter.enqueue(fileURL: existing)
+                self?.wirelessBatchPresenter.enqueue(fileURL: existing.fileURL, date: existing.sortDate)
             }
             return .accepted
         }
         do {
             let url = try store.save(data: data)
+            let item = WirelessScreenshot(fileURL: url, capturedAt: captureDate, receivedAt: Date())
             seenWirelessUploadsLock.lock()
-            seenWirelessUploads[digest] = url
+            seenWirelessUploads[digest] = item
             seenWirelessUploadsLock.unlock()
             Log.info("Delivered via Wireless Shortcut Batch: \(url.lastPathComponent)")
             DispatchQueue.main.async { [weak self] in
-                self?.wirelessBatchPresenter.enqueue(fileURL: url)
+                self?.wirelessBatchPresenter.enqueue(fileURL: url, date: item.sortDate)
                 Pasteboard.write(fileURL: url)
             }
             return .accepted

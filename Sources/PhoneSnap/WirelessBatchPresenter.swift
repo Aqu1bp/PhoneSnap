@@ -2,28 +2,22 @@ import AppKit
 
 @MainActor
 final class WirelessBatchPresenter {
-    /// Newest first. Persists across batches so the panel shows a running
+    /// Latest capture first. Persists across batches so the panel shows a running
     /// "recent from iPhone" strip rather than only the last run.
-    private var items: [URL] = []
+    private var items = RecentScreenshots()
     private var panelController: RecentFromIPhonePanelController?
-
-    private static let maxItems = 20
 
     /// Shows the panel immediately on the first upload and appends live as
     /// the rest of the batch streams in — no debounce; waiting for the batch
     /// to go quiet made the panel feel several seconds late.
-    func enqueue(fileURL: URL) {
-        items.removeAll { $0 == fileURL }
-        items.insert(fileURL, at: 0)
-        if items.count > Self.maxItems {
-            items.removeLast(items.count - Self.maxItems)
-        }
+    func enqueue(fileURL: URL, date: Date) {
+        items.insert(fileURL: fileURL, date: date)
 
         if let panelController {
-            panelController.update(fileURLs: items)
+            panelController.update(fileURLs: items.fileURLs)
             panelController.show()
         } else {
-            let controller = RecentFromIPhonePanelController(fileURLs: items) { [weak self] controller in
+            let controller = RecentFromIPhonePanelController(fileURLs: items.fileURLs) { [weak self] controller in
                 if self?.panelController === controller {
                     self?.panelController = nil
                 }

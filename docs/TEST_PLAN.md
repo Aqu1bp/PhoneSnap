@@ -78,7 +78,7 @@ Expected:
 - upload returns `{"ok":true,...}`
 - a PNG is saved to `PHONESNAP_DIR`
 - wireless uploads do not show the wired bottom-right thumbnail
-- after the debounce window, the Mac opens the **Recent from iPhone** panel for the received batch
+- the Mac opens **Recent from iPhone** immediately and updates it as uploads arrive
 - missing/incorrect token returns `401 Unauthorized`
 
 ## Wireless iPhone End-to-End
@@ -90,6 +90,9 @@ Expected:
 5. Take one or more screenshots.
 6. Run the PhoneSnap Shortcut.
 7. Confirm the Mac opens **Recent from iPhone**, each thumbnail drags into a file drop target, the files are saved, and the pasteboard contains the latest uploaded image.
+8. Confirm screenshots are ordered by capture time, newest on the left and oldest on the right, including screenshots taken within the same second.
+9. Re-run the Shortcut with the panel open, then after closing it. Confirm repeated screenshots keep their positions, even if the run is interrupted.
+10. Take another screenshot and repeat. Confirm it appears ahead of older screenshots. Re-add an older Shortcut before checking chronology if its uploads lack embedded capture dates.
 
 First run may require iOS Photos and local-network permission. Existing installed Shortcuts should be reinstalled to get batch behavior.
 
@@ -100,3 +103,4 @@ First run may require iOS Photos and local-network permission. Existing installe
 3. Confirm `WFGetLatestPhotoCount` is `10` by default, or the value from `PHONESNAP_BATCH_COUNT` when that environment variable is set.
 4. Confirm the workflow contains `is.workflow.actions.repeat.each` around the upload action.
 5. Confirm the upload action still uses `POST`, the original upload URL, and `Authorization: Bearer <token>`.
+6. Confirm `X-PhoneSnap-Captured-At` uses the Repeat Item's **Date Taken**, formatted as `yyyy-MM-dd'T'HH:mm:ss.SSSXXXXX` (including milliseconds and timezone).

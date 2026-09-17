@@ -8,6 +8,7 @@ Wireless has one main fallback sender:
 - The generated Shortcut is the fallback/manual sender. The user runs it after taking screenshots, and it sends the latest screenshot batch from Photos.
 - The Shortcut asks for the latest screenshot batch (10 by default; configurable by launching the Mac app with `PHONESNAP_BATCH_COUNT=<1-50>`, then re-downloading and re-adding the Shortcut) and posts each image as a separate upload.
 - The Mac saves each wireless upload, updates pasteboard to the latest upload, and presents a floating **Recent from iPhone** batch panel instead of the wired single thumbnail.
+- The panel sorts by capture date, newest to oldest from left to right, and keeps that order when a batch is re-sent. Re-download and re-add an older Shortcut to get capture dates even when its image files have no embedded date.
 - Embedded dev senders are deprecated/experimental references, not the main product path.
 
 No GitHub/Gist rendezvous, iCloud sync, third-party service, or manual Shortcut configuration is used.
@@ -51,6 +52,8 @@ If signing fails, the route returns a clear `500` response and logs the error in
 Signing runs on a dedicated serial queue with a 30-second timeout, so a slow or hung `shortcuts` process can never stall uploads or other connections. Signed bytes are cached per upload URL + token, so repeated downloads do not spawn repeated signing subprocesses — relevant because this route is gated by the pair ID alone, not the bearer token.
 
 `POST /api/v1/upload/<pairId>` accepts either a raw PNG/JPEG body or `multipart/form-data` with an image/file part. The request body limit is 32 MB. Authenticated requests without a `Content-Length` header are rejected with `411 Length Required`; `Transfer-Encoding: chunked` is rejected with `501`.
+
+The optional `X-PhoneSnap-Captured-At` header carries an ISO 8601 timestamp with time and timezone (milliseconds supported). Generated Shortcuts read Photos' **Date Taken** for each image. Without a valid header, PhoneSnap uses embedded capture metadata or, when that is absent, the image's first receipt time; this last fallback cannot guarantee capture chronology. Repeated identical image bytes share one thumbnail dated to their latest known capture.
 
 Uploads should authenticate with:
 

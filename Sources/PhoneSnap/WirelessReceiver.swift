@@ -28,7 +28,7 @@ final class WirelessReceiver {
         }
     }
 
-    typealias UploadHandler = (Data) -> UploadResult
+    typealias UploadHandler = (Data, Date?) -> UploadResult
     typealias StateHandler = (State) -> Void
 
     private let port: UInt16
@@ -184,7 +184,7 @@ private final class WirelessHTTPSession {
     private let pairing: WirelessPairing
     private let batchCount: Int
     private let primaryBaseURL: String
-    private let uploadHandler: (Data) -> WirelessReceiver.UploadResult
+    private let uploadHandler: WirelessReceiver.UploadHandler
     private var buffer = Data()
     private var headersParsed = false
     private var method = ""
@@ -210,7 +210,7 @@ private final class WirelessHTTPSession {
          pairing: WirelessPairing,
          batchCount: Int,
          primaryBaseURL: String,
-         uploadHandler: @escaping (Data) -> WirelessReceiver.UploadResult) {
+         uploadHandler: @escaping WirelessReceiver.UploadHandler) {
         self.connection = connection
         self.queue = queue
         self.maxBody = maxBody
@@ -527,6 +527,7 @@ private final class WirelessHTTPSession {
 
         let requestBody = body
         let contentType = headers["content-type"] ?? ""
+        let capturedAt = ScreenshotCaptureDate.parseISO8601(headers["x-phonesnap-captured-at"])
         let uploadHandler = self.uploadHandler
         Self.uploadQueue.async { [weak self] in
             guard let self else { return }
@@ -536,9 +537,9 @@ private final class WirelessHTTPSession {
                     self.queue.async { self.finishUpload(.malformedMultipart) }
                     return
                 }
-                processed = .completed(uploadHandler(extracted), byteCount: extracted.count)
+                processed = .completed(uploadHandler(extracted, capturedAt), byteCount: extracted.count)
             } else {
-                processed = .completed(uploadHandler(requestBody), byteCount: requestBody.count)
+                processed = .completed(uploadHandler(requestBody, capturedAt), byteCount: requestBody.count)
             }
             self.queue.async { self.finishUpload(processed) }
         }

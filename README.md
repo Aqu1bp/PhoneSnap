@@ -73,7 +73,9 @@ Behind the scenes, PhoneSnap uses Apple's ImageCaptureCore framework. macOS expo
 4. On the iPhone, open `PhoneSnap.shortcut` and add it in Shortcuts.
 5. Take a screenshot, then run the PhoneSnap Shortcut from Shortcuts, Action Button, Back Tap, Control Center, or the Home Screen.
 
-The Shortcut is generated locally by the Mac app. It asks Photos for the latest screenshot batch (10 by default, configurable with `PHONESNAP_BATCH_COUNT`) and posts each image to `POST /api/v1/upload/<pairId>` with a persisted bearer token, so the user does not type the URL, method, headers, or body. As uploads arrive, PhoneSnap updates the floating **Recent from iPhone** panel with draggable thumbnails. This remains useful when USB is unavailable.
+The Shortcut is generated locally by the Mac app. It asks Photos for the latest screenshot batch (10 by default, configurable with `PHONESNAP_BATCH_COUNT`) and posts each image to `POST /api/v1/upload/<pairId>` with a persisted bearer token, so the user does not type the URL, method, headers, or body. As uploads arrive, PhoneSnap updates the floating **Recent from iPhone** panel with draggable thumbnails, ordered by capture date from newest on the left to oldest on the right. Re-running the Shortcut keeps previously received screenshots in their chronological positions. This remains useful when USB is unavailable.
+
+Re-download and re-add the Shortcut after updating PhoneSnap to include capture dates in uploads. Older Shortcuts still work; the Mac uses embedded image capture dates when available, otherwise the first receipt time, which cannot guarantee capture order.
 
 Existing installed PhoneSnap Shortcuts should be removed and reinstalled from the setup page to get batch behavior.
 
